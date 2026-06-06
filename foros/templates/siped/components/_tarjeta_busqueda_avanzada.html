@@ -1,0 +1,113 @@
+<div class="card mb-4 shadow-sm border-primary">
+    <div class="card-header bg-primary text-white fw-bold">
+        Búsqueda Avanzada y Reportes
+    </div>
+    <div class="card-body">
+        <div class="mb-3">
+            {% include 'siped/_fragmento_estado.html' with id_fase='fase_busqueda_avanzada' estado=estados_tareas.fase_busqueda_avanzada %}
+        </div>
+
+        <form hx-post="{% url 'siped:iniciar_busqueda_avanzada' %}" hx-target="#flash-messages" hx-swap="beforeend">
+            {% csrf_token %}
+            
+            <div class="row g-2 mb-2">
+                <div class="col-4">{{ form_busqueda.nro_expediente }}</div>
+                <div class="col-4">{{ form_busqueda.anio }}</div>
+                <div class="col-4">{{ form_busqueda.cmb_documental }}</div>
+            </div>
+
+            <div class="mb-2">
+                {{ form_busqueda.texto }}
+            </div>
+
+            <div class="mb-2">
+                <label class="form-label small mb-1 fw-bold">Abogado / Profesional</label>
+                {{ form_busqueda.abogado }}
+            </div>
+
+            <div class="row g-2 mb-2">
+                <div class="col-4">{{ form_busqueda.dnij }}</div>
+                <div class="col-4">{{ form_busqueda.apellidoj }}</div>
+                <div class="col-4">{{ form_busqueda.nombresj }}</div>
+            </div>
+
+            <div class="row g-2 mb-2">
+                <div class="col-6">
+                    <label class="form-label small mb-1 fw-bold">Localidad</label>
+                    {{ form_busqueda.id_localidad }}
+                </div>
+                <div class="col-6">
+                    <label class="form-label small mb-1 fw-bold">Dependencia</label>
+                    {{ form_busqueda.id_dependencia }}
+                </div>
+            </div>
+
+            <div class="row g-2 mb-3">
+                <div class="col-6">
+                    <label class="form-label small mb-1 fw-bold">Filtro Estado</label>
+                    {{ form_busqueda.filtro_archivados }}
+                </div>
+                <div class="col-6">
+                    <label class="form-label small mb-1 fw-bold">Origen</label>
+                    {{ form_busqueda.organismo_origen }}
+                </div>
+            </div>
+
+            {% comment %}R8: contenedor invisible con el JSON de dependencias inyectado desde la view{% endcomment %}
+            <div id="dependencias-data"
+                 class="d-none"
+                 data-dependencias="{{ dependencias_json }}">
+            </div>
+
+            <div class="d-grid mb-3">
+                <button type="submit" class="btn btn-primary btn-sm">
+                    <i class="bi bi-search me-1"></i> Ejecutar Búsqueda y Generar Reporte
+                </button>
+            </div>
+        </form>
+
+        <hr>
+        <div class="d-flex justify-content-between align-items-center mb-2">
+            <span class="small fw-bold">Reportes Generados (CSV)</span>
+            <button class="btn btn-sm btn-link p-0" 
+                    hx-get="{% url 'siped:fragmento_busquedas' %}" 
+                    hx-target="#contenedor-lista-busquedas" 
+                    hx-swap="innerHTML">Actualizar lista</button>
+        </div>
+        
+        <div id="contenedor-lista-busquedas" class="border rounded p-2 bg-light" style="max-height: 150px; overflow-y: auto;"
+             hx-get="{% url 'siped:fragmento_busquedas' %}" 
+             hx-trigger="actualizar_listas from:body">
+            {% include 'siped/_fragmento_busquedas.html' %}
+        </div>
+    </div>
+</div>
+
+{% comment %}R8: script de cascada localidad → dependencia{% endcomment %}
+<script>
+(function () {
+    const depDataEl = document.getElementById('dependencias-data');
+    const locSel    = document.getElementById('id_localidad');
+    const depSel    = document.getElementById('id_dependencia');
+
+    if (!depDataEl || !locSel || !depSel) return;
+
+    const dependencias = JSON.parse(depDataEl.dataset.dependencias || '{}');
+
+    function populateDeps(locId) {
+        depSel.innerHTML = '<option value="">Todas las dependencias</option>';
+        const deps = dependencias[String(locId)] || {};
+        Object.entries(deps).forEach(function ([id, nombre]) {
+            const opt = document.createElement('option');
+            opt.value = id;
+            opt.textContent = nombre;
+            depSel.appendChild(opt);
+        });
+    }
+
+    locSel.addEventListener('change', function () { populateDeps(this.value); });
+
+    // Poblar al cargar si ya hay una localidad preseleccionada
+    if (locSel.value) populateDeps(locSel.value);
+})();
+</script>

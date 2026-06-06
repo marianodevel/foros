@@ -1,0 +1,52 @@
+<div class="card mb-4 shadow-sm border-secondary">
+    <div class="card-header bg-secondary text-white fw-bold">
+        3. Descarga de Documentos Adjuntos (PDF)
+    </div>
+    <div class="card-body">
+        <p class="small text-muted mb-3">Descarga físicamente los PDFs de los movimientos detectados.</p>
+        
+        <div class="mb-3">
+            {% include 'siped/_fragmento_estado.html' with id_fase='fase_3' estado=estados_tareas.fase_3 %}
+        </div>
+
+        <form hx-post="{% url 'siped:iniciar_fase' 'fase_3' %}" hx-target="#flash-messages" hx-swap="beforeend">
+            {% csrf_token %}
+            <div class="d-grid mb-3">
+                <button type="submit" class="btn btn-secondary btn-sm" {% if not existe_maestro %}disabled{% endif %}>
+                    <i class="bi bi-file-earmark-pdf me-1"></i> Descargar Documentos Faltantes
+                </button>
+            </div>
+        </form>
+
+        <hr>
+        <p class="small fw-bold mb-2">Descarga y Consolidación Individual</p>
+        <form hx-post="{% url 'siped:iniciar_descarga_unico' %}" hx-target="#flash-messages" hx-swap="beforeend">
+            {% csrf_token %}
+            <div class="input-group input-group-sm mb-2">
+                {{ form_individual.expediente_seleccionado }}
+                <button class="btn btn-outline-secondary" type="submit" {% if not existe_maestro %}disabled{% endif %} title="Sincronizar y Consolidar PDF">
+                    <i class="bi bi-cloud-download"></i>
+                </button>
+            </div>
+        </form>
+        
+        <div class="mt-2 mb-3">
+            {% include 'siped/_fragmento_estado.html' with id_fase='fase_unico' estado=estados_tareas.fase_unico %}
+        </div>
+
+        <hr>
+        <div class="d-flex justify-content-between align-items-center mb-2">
+            <span class="small fw-bold">Documentos Locales</span>
+            <button class="btn btn-sm btn-link p-0" 
+                    hx-get="{% url 'siped:fragmento_pdfs' %}" 
+                    hx-target="#contenedor-lista-pdfs" 
+                    hx-swap="innerHTML">Actualizar lista</button>
+        </div>
+        
+        <div id="contenedor-lista-pdfs" class="border rounded p-2 bg-light" style="max-height: 200px; overflow-y: auto;"
+             hx-get="{% url 'siped:fragmento_pdfs' %}" 
+             hx-trigger="actualizar_listas from:body">
+            {% include 'siped/_fragmento_pdfs.html' %}
+        </div>
+    </div>
+</div>

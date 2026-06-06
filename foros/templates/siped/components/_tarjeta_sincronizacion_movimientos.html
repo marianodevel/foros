@@ -1,0 +1,40 @@
+<div class="card mb-4 shadow-sm border-secondary">
+    <div class="card-header bg-secondary text-white fw-bold d-flex justify-content-between align-items-center">
+        <span>2. Extracción de Novedades y Movimientos</span>
+    </div>
+    <div class="card-body">
+        <p class="small text-muted mb-3">Descarga los movimientos nuevos de todos los expedientes privados registrados.</p>
+        
+        <div class="mb-3">
+            {% include 'siped/_fragmento_estado.html' with id_fase='fase_2' estado=estados_tareas.fase_2 %}
+        </div>
+
+        <form hx-post="{% url 'siped:iniciar_fase' 'fase_2' %}" hx-target="#flash-messages" hx-swap="beforeend">
+            {% csrf_token %}
+            <div class="d-grid gap-2 mb-3">
+                <button type="submit" class="btn btn-secondary btn-sm" {% if not existe_maestro %}disabled{% endif %}>
+                    <i class="bi bi-arrow-repeat me-1"></i> Actualizar Todos los Expedientes
+                </button>
+                
+                <a href="{% url 'siped:exportar_movimientos_todos' %}" class="btn btn-outline-success btn-sm {% if not existe_maestro %}disabled{% endif %}">
+                    <i class="bi bi-file-earmark-excel me-1"></i> Descargar Historial Completo (CSV)
+                </a>
+            </div>
+        </form>
+
+        <hr>
+        <p class="small fw-bold mb-2">Descargar Historial Individual (CSV)</p>
+        <div class="input-group input-group-sm mb-2">
+            <select class="form-select border-success" id="select_csv_individual" {% if not existe_maestro %}disabled{% endif %}>
+                <option value="" disabled selected>-- Seleccione un Expediente --</option>
+                {% for exp in expedientes_disponibles %}
+                    <option value="{{ exp.numero_expediente }}">{{ exp.numero_expediente }} - {{ exp.caratula|truncatechars:45 }}</option>
+                {% endfor %}
+            </select>
+            <button class="btn btn-success" type="button" {% if not existe_maestro %}disabled{% endif %} title="Descargar CSV del Expediente" 
+                    onclick="const exp = document.getElementById('select_csv_individual').value; if(exp){ window.location.href = '{% url 'siped:exportar_movimientos_individual' %}?exp=' + encodeURIComponent(exp); } else { alert('Seleccione un expediente de la lista.'); }">
+                <i class="bi bi-download"></i> CSV
+            </button>
+        </div>
+    </div>
+</div>

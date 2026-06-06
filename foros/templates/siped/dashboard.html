@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Foros{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2 class="mb-0">Dashboard de Causas</h2>
+        <a href="{% url 'home' %}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-left"></i> Volver al Inicio
+        </a>
+    </div>
+
+    <div class="card shadow-sm border-primary">
+        <div class="card-header bg-primary text-white fw-bold">
+            <i class="bi bi-folder2-open me-2"></i> Mis Expedientes Privados
+        </div>
+        <div class="card-body p-0">
+            <div class="accordion accordion-flush" id="accordionExpedientes">
+                
+                {% for exp in expedientes %}
+                <div class="accordion-item">
+                    <h2 class="accordion-header" id="heading-{{ exp.id }}">
+                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-{{ exp.id }}" aria-expanded="false" aria-controls="collapse-{{ exp.id }}">
+                            <span class="badge bg-secondary me-3">{{ exp.numero_expediente }}</span> 
+                            <strong>{{ exp.caratula|truncatechars:80 }}</strong>
+                        </button>
+                    </h2>
+                    <div id="collapse-{{ exp.id }}" class="accordion-collapse collapse" aria-labelledby="heading-{{ exp.id }}" data-bs-parent="#accordionExpedientes">
+                        <div class="accordion-body p-0">
+                            <ul class="list-group list-group-flush">
+                                {% for mov in exp.movimientos.all %}
+                                <li class="list-group-item d-flex justify-content-between align-items-center bg-light">
+                                    <div>
+                                        <i class="bi bi-calendar-event text-muted me-2"></i>
+                                        <span class="fw-bold">{{ mov.fecha_presentacion }}</span> - {{ mov.nombre_escrito }}
+                                        <div class="small text-muted mt-1 ms-4">
+                                            <span class="badge bg-info text-dark">{{ mov.tipo }}</span> | Estado: {{ mov.estado }}
+                                        </div>
+                                    </div>
+                                    <div>
+                                        {% for doc in mov.documentos.all %}
+                                            {% if not doc.es_consolidado %}
+                                            <a href="{% url 'siped:descargar_archivo' 'documentos' doc.nombre_original %}" class="btn btn-sm btn-outline-danger m-1" target="_blank" title="{{ doc.nombre_original }}">
+                                                <i class="bi bi-file-earmark-pdf"></i> PDF
+                                            </a>
+                                            {% endif %}
+                                        {% empty %}
+                                            <span class="badge bg-light text-muted border">Sin adjuntos</span>
+                                        {% endfor %}
+                                    </div>
+                                </li>
+                                {% empty %}
+                                <li class="list-group-item text-muted text-center py-3">
+                                    No se encontraron movimientos registrados para este expediente.
+                                </li>
+                                {% endfor %}
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+                {% empty %}
+                <div class="p-5 text-center text-muted">
+                    <i class="bi bi-inbox display-4 d-block mb-3"></i>
+                    No tienes expedientes privados asignados o sincronizados.
+                </div>
+                {% endfor %}
+                
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

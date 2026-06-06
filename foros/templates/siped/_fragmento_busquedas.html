@@ -1,0 +1,12 @@
+<ul class="list-group list-group-flush small" id="lista-busquedas">
+    {% for busqueda in lista_busquedas %}
+        <li class="list-group-item d-flex justify-content-between align-items-center px-0">
+            <span class="text-truncate" style="max-width: 80%;" title="{{ busqueda }}">{{ busqueda }}</span>
+            <a href="{% url 'siped:descargar_archivo' 'maestro' busqueda %}" class="btn btn-sm btn-outline-success" target="_blank">
+                <i class="bi bi-file-earmark-excel"></i>
+            </a>
+        </li>
+    {% empty %}
+        <li class="list-group-item px-0 text-muted">No hay reportes generados.</li>
+    {% endfor %}
+</ul>

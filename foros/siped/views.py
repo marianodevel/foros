@@ -1,0 +1,613 @@
+"""Controladores principales de la aplicación SIPED."""
+
+import csv
+import json
+import logging
+from functools import wraps
+
+from django.contrib import messages
+from django.http import FileResponse, Http404, HttpResponse
+from django.shortcuts import redirect, render
+from django.urls import reverse
+from django.views.decorators.http import require_POST
+
+from . import gestor_almacenamiento, gestor_tareas, session_manager
+from .catalogos.dependencias import DEPENDENCIAS_POR_LOCALIDAD
+from .forms import (
+    BusquedaAvanzadaForm,
+    DescargaPublicaForm,
+    LoginForm,
+    SincronizacionIndividualForm,
+)
+from .models import DocumentoAdjunto, Expediente, Movimiento, ReporteBusqueda
+from .tasks import (
+    busqueda_avanzada_task,
+    descarga_publica_task,
+    sincronizacion_individual_task,
+    sincronizacion_publica_task,
+    sincronizar_documentos_task,
+    sincronizar_expedientes_task,
+    sincronizar_movimientos_task,
+)
+
+logger = logging.getLogger(__name__)
+
+# R1: mapa centralizado — evita repetir el mismo dict en cuatro funciones distintas
+MAPA_FASES = {
+    "fase_1":                 "sincronizar_expedientes",
+    "fase_2":                 "sincronizar_movimientos",
+    "fase_3":                 "sincronizar_documentos",
+    "fase_unico":             "sincronizacion_individual",
+    "fase_publica":           "sincronizacion_publica",
+    "fase_busqueda_avanzada": "busqueda_avanzada",
+    "fase_descarga_publica":  "descarga_publica",
+}
+
+MAPA_TAREAS_CELERY = {
+    "fase_1":       sincronizar_expedientes_task,
+    "fase_2":       sincronizar_movimientos_task,
+    "fase_3":       sincronizar_documentos_task,
+    "fase_publica": sincronizacion_publica_task,
+}
+
+
+def siped_login_required(view_func):
+    """Decorador para restringir el acceso a usuarios sin sesión activa en SIPED."""
+    @wraps(view_func)
+    def _wrapped_view(request, *args, **kwargs):
+        if "siped_cookies" not in request.session:
+            messages.warning(request, "Por favor, inicia sesión para acceder a esta página.")
+            return redirect("siped:login")
+        return view_func(request, *args, **kwargs)
+    return _wrapped_view
+
+
+def login_view(request):
+    """Maneja la autenticación contra el sistema externo y establece la sesión local."""
+    if "siped_cookies" in request.session:
+        return redirect("siped:indice")
+
+    if request.method == "POST":
+        form = LoginForm(request.POST)
+        if form.is_valid():
+            username = form.cleaned_data["username"]
+            password = form.cleaned_data["password"]
+
+            logger.info("Intento de login para usuario: %s", username)
+            cookies_dict = session_manager.autenticar_en_siped(username, password)
+
+            if cookies_dict:
+                request.session["siped_cookies"] = cookies_dict
+                request.session["siped_username"] = username
+                logger.info("Login exitoso para usuario: %s", username)
+                messages.success(request, f"Bienvenido, {username}! Sesión iniciada.")
+                return redirect("siped:indice")
+
+            logger.warning("Login fallido para usuario: %s", username)
+            messages.error(request, "Error de autenticación. Usuario o contraseña incorrectos.")
+    else:
+        form = LoginForm()
+
+    return render(request, "siped/login.html", {"form": form})
+
+
+@siped_login_required
+def logout_view(request):
+    """Elimina las credenciales de sesión del usuario actual."""
+    username = request.session.get("siped_username")
+    request.session.pop("siped_cookies", None)
+    request.session.pop("siped_username", None)
+    logger.info("Sesión cerrada para usuario: %s", username)
+    messages.success(request, "Sesión cerrada exitosamente.")
+    return redirect("siped:login")
+
+
+@siped_login_required
+def fragmento_mensajes(request):
+    """Renderiza el fragmento HTMX para las notificaciones del sistema."""
+    return render(request, "siped/_fragmento_mensajes.html")
+
+
+@siped_login_required
+def indice(request):
+    """Renderiza el panel principal con el estado de tareas y expedientes almacenados."""
+    usuario = request.session.get("siped_username")
+
+    lista_pdf = gestor_almacenamiento.listar_documentos_pdf(usuario)
+    lista_busquedas = gestor_almacenamiento.listar_reportes_busqueda(usuario)
+
+    # R12: una sola query en lugar de .exists() + .count() por separado
+    total_maestro  = Expediente.objects.filter(usuario_asignado=usuario, origen="PRIVADO").count()
+    existe_maestro = total_maestro > 0
+
+    existe_movimientos = Movimiento.objects.filter(
+        expediente__usuario_asignado=usuario, expediente__origen="PRIVADO"
+    ).exists()
+
+    existe_publico_csv = Expediente.objects.filter(
+        usuario_asignado=usuario, origen="PUBLICO"
+    ).exists()
+    expedientes_disponibles = Expediente.objects.filter(usuario_asignado=usuario).values()
+
+    # R1: usar constante de módulo en lugar del dict local
+    estados_tareas = {}
+    for clave_plantilla, nombre_real in MAPA_FASES.items():
+        id_tarea = gestor_tareas.obtener_id_tarea(usuario, nombre_real)
+        estados_tareas[clave_plantilla] = gestor_tareas.obtener_estado_tarea(
+            id_tarea, usuario, nombre_real
+        )
+
+    form_busqueda = BusquedaAvanzadaForm()
+    form_individual = SincronizacionIndividualForm(usuario=usuario)
+    form_publica = DescargaPublicaForm(usuario=usuario)
+
+    context = {
+        "archivos_pdf":            lista_pdf,
+        "existe_maestro":          existe_maestro,
+        "total_maestro":           total_maestro,
+        "existe_movimientos":      existe_movimientos,
+        "existe_publico_csv":      existe_publico_csv,
+        "lista_busquedas":         lista_busquedas,
+        "estados_tareas":          estados_tareas,
+        "username":                usuario,
+        "expedientes_disponibles": expedientes_disponibles,
+        "form_busqueda":           form_busqueda,
+        "form_individual":         form_individual,
+        "form_publica":            form_publica,
+        # R8: catálogo de dependencias por localidad para el selector dinámico
+        "dependencias_json": json.dumps(
+            {str(k): v for k, v in DEPENDENCIAS_POR_LOCALIDAD.items()}
+        ),
+    }
+    
+    return render(request, "siped/index.html", context)
+
+
+@require_POST
+@siped_login_required
+def iniciar_fase(request, nombre_fase):
+    # R1: usar constantes de módulo en lugar del dict local
+    if nombre_fase not in MAPA_TAREAS_CELERY:
+        messages.error(request, f"Fase '{nombre_fase}' no reconocida.")
+        return render(request, "siped/_fragmento_mensajes.html")
+
+    nombre_real  = MAPA_FASES[nombre_fase]
+    tarea_celery = MAPA_TAREAS_CELERY[nombre_fase]
+    usuario = request.session["siped_username"]
+    
+    estado_actual = gestor_tareas.obtener_estado_tarea(
+        gestor_tareas.obtener_id_tarea(usuario, nombre_real), usuario, nombre_real
+    )
+
+    if estado_actual["estado"] in ["PENDING", "STARTED", "RETRY"]:
+        messages.warning(request, f"El proceso {nombre_real.replace('_', ' ')} ya está en curso.")
+        return render(request, "siped/_fragmento_mensajes.html")
+
+    tarea = tarea_celery.delay(
+        cookies=request.session["siped_cookies"], username=usuario
+    )
+    gestor_tareas.registrar_tarea_iniciada(usuario, nombre_real, tarea.id)
+
+    messages.success(request, f"Proceso {nombre_real.replace('_', ' ')} iniciado.")
+    
+    response = render(request, "siped/_fragmento_mensajes.html")
+    response["HX-Trigger"] = f"actualizar_estado_{nombre_fase}"
+    return response
+
+
+@require_POST
+@siped_login_required
+def iniciar_descarga_unico(request):
+    nro_expediente = request.POST.get("expediente_seleccionado")
+    nombre_real = "sincronizacion_individual"
+    usuario = request.session["siped_username"]
+    nombre_fase = "fase_unico"
+
+    if not nro_expediente:
+        messages.warning(request, "Debe seleccionar un expediente.")
+        return render(request, "siped/_fragmento_mensajes.html")
+
+    estado_actual = gestor_tareas.obtener_estado_tarea(
+        gestor_tareas.obtener_id_tarea(usuario, nombre_real), usuario, nombre_real
+    )
+    
+    if estado_actual["estado"] in ["PENDING", "STARTED", "RETRY"]:
+        messages.warning(request, "Actualización en curso. Por favor, aguarde.")
+        return render(request, "siped/_fragmento_mensajes.html")
+
+    tarea = sincronizacion_individual_task.delay(
+        cookies=request.session["siped_cookies"], nro_expediente=nro_expediente, username=usuario
+    )
+    gestor_tareas.registrar_tarea_iniciada(usuario, nombre_real, tarea.id)
+
+    messages.success(request, f"Actualizando expediente {nro_expediente} en segundo plano...")
+    
+    response = render(request, "siped/_fragmento_mensajes.html")
+    response["HX-Trigger"] = f"actualizar_estado_{nombre_fase}"
+    return response
+
+
+@require_POST
+@siped_login_required
+def iniciar_busqueda_avanzada(request):
+    nombre_real = "busqueda_avanzada"
+    usuario = request.session["siped_username"]
+    nombre_fase = "fase_busqueda_avanzada"
+    
+    estado_actual = gestor_tareas.obtener_estado_tarea(
+        gestor_tareas.obtener_id_tarea(usuario, nombre_real), usuario, nombre_real
+    )
+
+    if estado_actual["estado"] in ["PENDING", "STARTED", "RETRY"]:
+        messages.warning(request, "Búsqueda Avanzada en curso.")
+        return render(request, "siped/_fragmento_mensajes.html")
+
+    # R2: validar el formulario antes de encolar — evita pasar csrfmiddlewaretoken
+    # y campos inválidos directamente al worker de Celery
+    form = BusquedaAvanzadaForm(request.POST)
+    if not form.is_valid():
+        messages.error(request, "Parámetros de búsqueda inválidos. Revise los campos e intente nuevamente.")
+        return render(request, "siped/_fragmento_mensajes.html")
+
+    tarea = busqueda_avanzada_task.delay(
+        cookies=request.session["siped_cookies"],
+        username=usuario,
+        filtros=form.cleaned_data,
+    )
+    gestor_tareas.registrar_tarea_iniciada(usuario, nombre_real, tarea.id)
+
+    messages.success(request, "Búsqueda iniciada.")
+    
+    response = render(request, "siped/_fragmento_mensajes.html")
+    response["HX-Trigger"] = f"actualizar_estado_{nombre_fase}"
+    return response
+
+
+@require_POST
+@siped_login_required
+def iniciar_descarga_publico(request):
+    link_detalle = request.POST.get("link_detalle_seleccionado")
+    nombre_real = "descarga_publica"
+    usuario = request.session["siped_username"]
+    nombre_fase = "fase_descarga_publica"
+
+    if not link_detalle:
+        messages.warning(request, "Debe seleccionar un expediente.")
+        return render(request, "siped/_fragmento_mensajes.html")
+
+    estado_actual = gestor_tareas.obtener_estado_tarea(
+        gestor_tareas.obtener_id_tarea(usuario, nombre_real), usuario, nombre_real
+    )
+    
+    if estado_actual["estado"] in ["PENDING", "STARTED", "RETRY"]:
+        messages.warning(request, "Descarga pública en curso.")
+        return render(request, "siped/_fragmento_mensajes.html")
+
+    tarea = descarga_publica_task.delay(
+        cookies=request.session["siped_cookies"],
+        link_detalle=link_detalle,
+        username=usuario,
+    )
+    gestor_tareas.registrar_tarea_iniciada(usuario, nombre_real, tarea.id)
+
+    messages.success(request, "Iniciando descarga pública...")
+    
+    response = render(request, "siped/_fragmento_mensajes.html")
+    response["HX-Trigger"] = f"actualizar_estado_{nombre_fase}"
+    return response
+
+
+@siped_login_required
+def opciones_busqueda_avanzada(request):
+    usuario = request.session.get("siped_username")
+    expedientes = Expediente.objects.filter(usuario_asignado=usuario, origen="BUSQUEDA_AVANZADA")
+
+    opciones = ['<option value="">Seleccione un expediente...</option>']
+    for exp in expedientes:
+        val = exp.link_detalle
+        text = f"{exp.numero_expediente} - {exp.caratula}"
+        opciones.append(f'<option value="{val}">{text}</option>')
+
+    return HttpResponse("\n".join(opciones))
+
+
+@require_POST
+@siped_login_required
+def resetear_estado(request, nombre_fase):
+    usuario = request.session.get("siped_username")
+    nombre_real = MAPA_FASES.get(nombre_fase, nombre_fase)
+
+    gestor_tareas.resetear_id_tarea(usuario, nombre_real)
+
+    # Devolver el div del estado vacío con el mismo id para que HTMX
+    # lo reemplace y el aviso desaparezca visualmente sin recargar la página
+    return HttpResponse(f'<div id="estado_{nombre_fase}"></div>')
+
+
+@siped_login_required
+def fragmento_estado(request, nombre_fase):
+    usuario = request.session.get("siped_username")
+    # R1: usar constante de módulo en lugar del dict local
+    nombre_real = MAPA_FASES.get(nombre_fase, nombre_fase)
+    
+    estado = gestor_tareas.obtener_estado_tarea(
+        gestor_tareas.obtener_id_tarea(usuario, nombre_real), usuario, nombre_real
+    )
+    
+    response = render(request, "siped/_fragmento_estado.html", {"id_fase": nombre_fase, "estado": estado})
+    
+    if estado.get("recargar"):
+        if nombre_fase == "fase_1":
+            response["HX-Refresh"] = "true"
+        else:
+            response["HX-Trigger"] = "actualizar_listas"
+        
+    return response
+
+
+@siped_login_required
+def fragmento_pdfs(request):
+    usuario = request.session.get("siped_username")
+    lista_pdf = gestor_almacenamiento.listar_documentos_pdf(usuario)
+    return render(request, "siped/_fragmento_pdfs.html", {"archivos_pdf": lista_pdf})
+
+
+@siped_login_required
+def fragmento_busquedas(request):
+    usuario = request.session.get("siped_username")
+    lista_busquedas = gestor_almacenamiento.listar_reportes_busqueda(usuario)
+    return render(request, "siped/_fragmento_busquedas.html", {"lista_busquedas": lista_busquedas})
+
+
+@siped_login_required
+def descargar_archivo(request, tipo, nombre_archivo):
+    usuario = request.session.get("siped_username")
+    
+    if tipo == "documentos":
+        doc = DocumentoAdjunto.objects.filter(
+            expediente__usuario_asignado=usuario, 
+            nombre_original=nombre_archivo
+        ).first()
+        if doc and doc.archivo:
+            return FileResponse(doc.archivo.open(), as_attachment=True, filename=nombre_archivo)
+            
+    elif tipo == "maestro" and nombre_archivo.startswith("busqueda_"):
+        reporte = ReporteBusqueda.objects.filter(
+            usuario_asignado=usuario, 
+            archivo_csv__endswith=nombre_archivo
+        ).first()
+        if reporte and reporte.archivo_csv:
+            return FileResponse(reporte.archivo_csv.open(), as_attachment=True, filename=nombre_archivo)
+
+    raise Http404("El archivo solicitado no existe o no tiene permisos para acceder.")
+
+
+@siped_login_required
+def validar_descarga_expediente(request):
+    """
+    Endpoint intermedio de HTMX que verifica si el PDF existe sin recargar la página.
+    Si existe, dispara un evento JS para forzar la descarga.
+    Si no existe, devuelve una alerta en crudo para ser inyectada en el toast container.
+    """
+    usuario = request.session.get("siped_username")
+    nro_expediente = request.GET.get("expediente_seleccionado")
+
+    if not nro_expediente:
+        messages.warning(request, "Debe seleccionar un expediente de la lista.")
+        return render(request, "siped/_fragmento_mensajes.html")
+
+    doc = DocumentoAdjunto.objects.filter(
+        expediente__usuario_asignado=usuario,
+        expediente__numero_expediente=nro_expediente,
+        es_consolidado=True
+    ).first()
+
+    if not doc or not doc.archivo:
+        messages.warning(
+            request, 
+            f"No hay documento consolidado para el expediente {nro_expediente}. Ejecute la sincronización primero."
+        )
+        return render(request, "siped/_fragmento_mensajes.html")
+
+    # Si todo es correcto, devolvemos un 200 vacío pero inyectamos la orden de descarga en las cabeceras.
+    response = HttpResponse()
+    url_descarga = reverse("siped:descargar_por_expediente", args=[nro_expediente])
+    response["HX-Trigger"] = json.dumps({"iniciar_descarga_archivo": url_descarga})
+    return response
+
+
+@siped_login_required
+def descargar_por_expediente(request, nro_expediente):
+    """Descarga directa (sólo accesible si el validador lo permitió o navegando manualmente)."""
+    usuario = request.session.get("siped_username")
+    
+    doc = DocumentoAdjunto.objects.filter(
+        expediente__usuario_asignado=usuario,
+        expediente__numero_expediente=nro_expediente,
+        es_consolidado=True
+    ).first()
+    
+    if not doc or not doc.archivo:
+        messages.error(request, "El archivo solicitado ya no se encuentra disponible.")
+        return redirect("siped:indice")
+        
+    return FileResponse(doc.archivo.open(), as_attachment=True, filename=doc.nombre_original)
+
+
+@siped_login_required
+def exportar_expedientes_csv(request):
+    usuario = request.session.get("siped_username")
+    expedientes = Expediente.objects.filter(usuario_asignado=usuario, origen="PRIVADO").order_by("numero_expediente")
+
+    response = HttpResponse(content_type='text/csv')
+    response['Content-Disposition'] = 'attachment; filename="lista_expedientes_privados.csv"'
+
+    writer = csv.writer(response)
+    writer.writerow([
+        'Numero Expediente', 'Caratula', 'Dependencia', 
+        'Secretaria', 'Estado', 'Ultimo Movimiento', 'Localidad'
+    ])
+
+    for exp in expedientes:
+        writer.writerow([
+            exp.numero_expediente,
+            exp.caratula,
+            exp.dependencia,
+            exp.secretaria,
+            exp.estado,
+            exp.fec_ult_mov,
+            exp.localidad
+        ])
+
+    return response
+
+
+@siped_login_required
+def exportar_expedientes_publicos_csv(request):
+    """Exporta como CSV todos los expedientes de origen PUBLICO y BUSQUEDA_AVANZADA."""
+    usuario = request.session.get("siped_username")
+    expedientes = Expediente.objects.filter(
+        usuario_asignado=usuario,
+        origen__in=["PUBLICO", "BUSQUEDA_AVANZADA"],
+    ).order_by("origen", "numero_expediente")
+
+    response = HttpResponse(content_type="text/csv")
+    response["Content-Disposition"] = 'attachment; filename="expedientes_publicos.csv"'
+
+    writer = csv.writer(response)
+    writer.writerow([
+        "Numero Expediente", "Caratula", "Localidad",
+        "Dependencia", "Secretaria", "Fecha Alta", "Origen",
+    ])
+    for exp in expedientes:
+        writer.writerow([
+            exp.numero_expediente,
+            exp.caratula,
+            exp.localidad,
+            exp.dependencia,
+            exp.secretaria,
+            exp.fec_ult_mov,
+            exp.origen,
+        ])
+
+    return response
+
+
+@siped_login_required
+def exportar_movimientos_todos(request):
+    usuario = request.session.get("siped_username")
+    movimientos = Movimiento.objects.filter(
+        expediente__usuario_asignado=usuario, 
+        expediente__origen="PRIVADO"
+    ).select_related('expediente').order_by("expediente__numero_expediente", "-id")
+
+    response = HttpResponse(content_type='text/csv')
+    response['Content-Disposition'] = 'attachment; filename="historial_movimientos_completo.csv"'
+
+    writer = csv.writer(response)
+    writer.writerow([
+        'Expediente', 'Fecha Presentacion', 'Nombre Escrito', 
+        'Tipo', 'Estado', 'Generado Por', 'Fecha Firma', 'Link PDF'
+    ])
+
+    for mov in movimientos:
+        writer.writerow([
+            mov.expediente.numero_expediente,
+            mov.fecha_presentacion,
+            mov.nombre_escrito,
+            mov.tipo,
+            mov.estado,
+            mov.generado_por,
+            mov.fecha_firma,
+            mov.link_escrito
+        ])
+
+    return response
+
+
+@siped_login_required
+def exportar_movimientos_individual(request):
+    usuario = request.session.get("siped_username")
+    nro_exp = request.GET.get('exp')
+    
+    if not nro_exp:
+        messages.warning(request, "Debe especificar un expediente.")
+        return redirect('siped:indice')
+        
+    movimientos = Movimiento.objects.filter(
+        expediente__usuario_asignado=usuario,
+        expediente__numero_expediente=nro_exp
+    ).order_by("-id")
+    
+    nombre_seguro = nro_exp.replace("/", "-").replace("\\", "-")
+    response = HttpResponse(content_type='text/csv')
+    response['Content-Disposition'] = f'attachment; filename="movimientos_{nombre_seguro}.csv"'
+
+    writer = csv.writer(response)
+    writer.writerow([
+        'Expediente', 'Fecha Presentacion', 'Nombre Escrito', 
+        'Tipo', 'Estado', 'Generado Por', 'Fecha Firma', 'Link PDF'
+    ])
+
+    for mov in movimientos:
+        writer.writerow([
+            mov.expediente.numero_expediente,
+            mov.fecha_presentacion,
+            mov.nombre_escrito,
+            mov.tipo,
+            mov.estado,
+            mov.generado_por,
+            mov.fecha_firma,
+            mov.link_escrito
+        ])
+
+    return response
+
+
+@siped_login_required
+def dashboard(request):
+    """
+    Vista de resumen ejecutivo: lista todos los expedientes privados del usuario
+    con sus movimientos y documentos adjuntos, organizados en un acordeón.
+    """
+    usuario = request.session.get("siped_username")
+    expedientes = (
+        Expediente.objects.filter(usuario_asignado=usuario, origen="PRIVADO")
+        .prefetch_related("movimientos__documentos")
+        .order_by("numero_expediente")
+    )
+    return render(request, "siped/dashboard.html", {
+        "expedientes": expedientes,
+        "username": usuario,
+    })
+
+
+from django.conf import settings
+
+@siped_login_required
+def debug_expediente(request, nro_expediente):
+    # R10: solo accesible en entornos de desarrollo o para usuarios staff
+    if not settings.DEBUG and not request.user.is_staff:
+        raise Http404
+    usuario = request.session.get("siped_username")
+    try:
+        exp = Expediente.objects.get(usuario_asignado=usuario, numero_expediente=nro_expediente)
+        movs = exp.movimientos.all().order_by("-id")[:15]
+        
+        html = "<div style='font-family: sans-serif; padding: 20px;'>"
+        html += f"<h2>Diagnóstico de Expediente: {nro_expediente}</h2>"
+        html += f"<p><strong>Total de movimientos registrados en la BD:</strong> {exp.movimientos.count()}</p>"
+        html += "<h3>Últimos 15 movimientos:</h3>"
+        html += "<table border='1' cellpadding='8' style='border-collapse: collapse; text-align: left;'>"
+        html += "<tr style='background-color: #f2f2f2;'><th>Fecha</th><th>Tiene Link PDF</th><th>Nombre del Escrito</th><th>Estado</th></tr>"
+
+        for m in movs:
+            tiene_link = "SÍ" if m.link_escrito else "NO"
+            color = "green" if tiene_link == "SÍ" else "red"
+            html += f"<tr><td>{m.fecha_presentacion}</td><td style='color: {color}; font-weight: bold;'>{tiene_link}</td><td>{m.nombre_escrito}</td><td>{m.estado}</td></tr>"
+
+        html += "</table></div>"
+        return HttpResponse(html)
+        
+    except Expediente.DoesNotExist:
+        return HttpResponse(f"Expediente '{nro_expediente}' no encontrado en la base de datos para el usuario '{usuario}'.")

@@ -1,0 +1,52 @@
+<div class="card mb-4 shadow-sm border-info">
+    <div class="card-header bg-info text-dark fw-bold">
+        Acceso Público
+    </div>
+    <div class="card-body">
+        <p class="small mb-3">Opción 1: Obtener índice completo de expedientes públicos por localidad.</p>
+        
+        <div class="mb-3">
+            {% include 'siped/_fragmento_estado.html' with id_fase='fase_publica' estado=estados_tareas.fase_publica %}
+        </div>
+
+        <form hx-post="{% url 'siped:iniciar_fase' 'fase_publica' %}" hx-target="#flash-messages" hx-swap="beforeend">
+            {% csrf_token %}
+            <div class="d-grid mb-2">
+                <button type="submit" class="btn btn-info btn-sm text-dark">
+                    <i class="bi bi-globe me-1"></i> Sincronización Masiva Pública
+                </button>
+            </div>
+        </form>
+
+        {% comment %}R9: link de descarga del índice público, equivalente al que tenía Flask{% endcomment %}
+        {% if existe_publico_csv %}
+        <div class="mt-1 mb-3">
+            <a href="{% url 'siped:exportar_publicos' %}" class="btn btn-outline-info btn-sm text-dark w-100">
+                <i class="bi bi-file-earmark-excel me-1"></i> Descargar índice público (CSV)
+            </a>
+        </div>
+        {% endif %}
+
+        <hr>
+        <p class="small mb-2">Opción 2: Extraer documentos de un expediente público o de búsqueda avanzada.</p>
+        
+        <div class="mb-2">
+            {% include 'siped/_fragmento_estado.html' with id_fase='fase_descarga_publica' estado=estados_tareas.fase_descarga_publica %}
+        </div>
+
+        <form hx-post="{% url 'siped:iniciar_descarga_publico' %}" hx-target="#flash-messages" hx-swap="beforeend">
+            {% csrf_token %}
+            <div class="input-group input-group-sm mb-2">
+                {{ form_publica.link_detalle_seleccionado }}
+                <button class="btn btn-outline-info text-dark" type="submit" {% if not existe_publico_csv %}disabled{% endif %}>Descargar PDFs</button>
+            </div>
+            <div class="text-end">
+                <button type="button" class="btn btn-link btn-sm p-0 small"
+                        hx-get="{% url 'siped:opciones_busqueda_avanzada' %}"
+                        hx-target="#{{ form_publica.link_detalle_seleccionado.id_for_label }}">
+                    Actualizar opciones
+                </button>
+            </div>
+        </form>
+    </div>
+</div>

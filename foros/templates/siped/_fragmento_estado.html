@@ -1,0 +1,46 @@
+<div id="estado_{{ id_fase }}" 
+     hx-get="{% url 'siped:fragmento_estado' id_fase %}" 
+     {% if estado.estado in 'PENDING,STARTED,RETRY' %}
+     hx-trigger="every 3s, actualizar_estado_{{ id_fase }} from:body" 
+     {% else %}
+     hx-trigger="actualizar_estado_{{ id_fase }} from:body" 
+     {% endif %}
+     hx-swap="outerHTML">
+    
+    <div class="alert {% if estado.estado == 'SUCCESS' %}alert-success{% elif estado.estado == 'FAILURE' %}alert-danger{% elif estado.estado == 'IDLE' %}alert-secondary{% else %}alert-info{% endif %} p-2 small mb-0">
+        <strong>Estado:</strong> {{ estado.estado }} <br>
+        <strong>Resultado:</strong> {{ estado.resultado }}
+        
+        {% if estado.estado in 'SUCCESS,FAILURE,REVOKED' %}
+        <div class="mt-2 text-end">
+            <button class="btn btn-link btn-sm p-0 text-decoration-none"
+                    hx-post="{% url 'siped:resetear_estado' id_fase %}"
+                    hx-target="#estado_{{ id_fase }}"
+                    hx-swap="outerHTML">
+                Ocultar aviso
+            </button>
+        </div>
+
+        {% if estado.estado == 'SUCCESS' and id_fase == 'fase_unico' %}
+        <script>
+        (function () {
+            var flagKey = 'siped_dl_fase_unico';
+            if (window[flagKey]) return;
+            window[flagKey] = true;
+
+            var select = document.getElementById('{{ form_individual.expediente_seleccionado.id_for_label }}');
+            if (select && select.value) {
+                var base = "{% url 'siped:descargar_por_expediente' 'DUMMY_EXP' %}";
+                var url  = base.replace('DUMMY_EXP', encodeURIComponent(select.value));
+                window.location.href = url;
+            }
+
+            // Limpiar flag tras 5s para permitir nueva descarga en la misma sesión
+            setTimeout(function () { window[flagKey] = false; }, 5000);
+        })();
+        </script>
+        {% endif %}
+
+        {% endif %}
+    </div>
+</div>

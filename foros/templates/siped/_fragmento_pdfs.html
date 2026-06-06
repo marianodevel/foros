@@ -1,0 +1,12 @@
+<ul class="list-group list-group-flush small" id="lista-pdfs">
+    {% for pdf in archivos_pdf %}
+        <li class="list-group-item d-flex justify-content-between align-items-center px-0">
+            <span class="text-truncate" style="max-width: 80%;" title="{{ pdf }}">{{ pdf }}</span>
+            <a href="{% url 'siped:descargar_archivo' 'documentos' pdf %}" class="btn btn-sm btn-outline-primary" target="_blank">
+                <i class="bi bi-download"></i>
+            </a>
+        </li>
+    {% empty %}
+        <li class="list-group-item px-0 text-muted">No hay documentos descargados.</li>
+    {% endfor %}
+</ul>
