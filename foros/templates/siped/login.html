@@ -1,47 +1,48 @@
-{% extends "siped/base.html" %}
+{% extends "base.html" %}
 
-{% block title %}Login - Scraper SIPED{% endblock %}
-{% block body_class %}bg-body-tertiary d-flex align-items-center vh-100{% endblock %}
+{% block title %}Acceso SIPED{% endblock %}
+
+{% block bodyclass %}bg-body-tertiary{% endblock %}
 
 {% block content %}
-<div class="container">
-    <div class="row justify-content-center">
-        <div class="col-md-6 col-lg-5">
-            <div class="card shadow-sm border-secondary">
-                <div class="card-body p-4">
-                    <h2 class="card-title text-center mb-4">Acceso SIPED</h2>
-                    <p class="text-center text-muted mb-4">Introduce tus credenciales de la Intranet para utilizar el sistema automatizado.</p>
+<div class="row justify-content-center mt-5">
+    <div class="col-md-6 col-lg-5">
+        <div class="card shadow-sm border-secondary">
+            <div class="card-body p-4">
+                <h2 class="card-title text-center mb-4">Acceso SIPED</h2>
+                <p class="text-center text-muted mb-4">
+                    Introducí tus credenciales de la Intranet judicial para utilizar el sistema automatizado.
+                </p>
 
-                    <form method="POST" action="{% url 'siped:login' %}">
-                        {% csrf_token %}
+                <form method="POST" action="{% url 'siped:login' %}">
+                    {% csrf_token %}
 
-                        <div class="mb-3">
-                            {{ form.username.label_tag }}
-                            {{ form.username }}
-                            {% if form.username.errors %}
-                                <div class="text-danger small mt-1">{{ form.username.errors.0 }}</div>
-                            {% endif %}
-                        </div>
-
-                        <div class="mb-4">
-                            {{ form.password.label_tag }}
-                            {{ form.password }}
-                            {% if form.password.errors %}
-                                <div class="text-danger small mt-1">{{ form.password.errors.0 }}</div>
-                            {% endif %}
-                        </div>
-
-                        {% if form.non_field_errors %}
-                            <div class="alert alert-danger p-2 small">
-                                {{ form.non_field_errors.0 }}
-                            </div>
+                    <div class="mb-3">
+                        {{ form.username.label_tag }}
+                        {{ form.username }}
+                        {% if form.username.errors %}
+                            <div class="text-danger small mt-1">{{ form.username.errors.0 }}</div>
                         {% endif %}
+                    </div>
 
-                        <div class="d-grid">
-                            <button type="submit" class="btn btn-primary">Iniciar Sesión</button>
+                    <div class="mb-4">
+                        {{ form.password.label_tag }}
+                        {{ form.password }}
+                        {% if form.password.errors %}
+                            <div class="text-danger small mt-1">{{ form.password.errors.0 }}</div>
+                        {% endif %}
+                    </div>
+
+                    {% if form.non_field_errors %}
+                        <div class="alert alert-danger p-2 small">
+                            {{ form.non_field_errors.0 }}
                         </div>
-                    </form>
-                </div>
+                    {% endif %}
+
+                    <div class="d-grid">
+                        <button type="submit" class="btn btn-primary">Iniciar Sesión</button>
+                    </div>
+                </form>
             </div>
         </div>
     </div>
