@@ -569,12 +569,16 @@ def dashboard(request):
     """
     Vista de resumen ejecutivo: lista todos los expedientes privados del usuario
     con sus movimientos y documentos adjuntos, organizados en un acordeón.
+    Ordenados por actividad más reciente primero.
     """
+    from django.db.models import Max
+
     usuario = request.session.get("siped_username")
     expedientes = (
         Expediente.objects.filter(usuario_asignado=usuario, origen="PRIVADO")
         .prefetch_related("movimientos__documentos")
-        .order_by("numero_expediente")
+        .annotate(ultimo_movimiento_id=Max("movimientos__id"))
+        .order_by("-ultimo_movimiento_id")
     )
     return render(request, "siped/dashboard.html", {
         "expedientes": expedientes,
