@@ -10,6 +10,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from . import constants
 from . import session_manager
+from .exceptions import PaginaInesperada, SesionSIPEDExpirada
 
 logger = logging.getLogger(__name__)
 
@@ -125,13 +126,25 @@ def manejar_fase_con_sesion(nombre_fase: str) -> Callable:
             logger.info(f"--- INICIANDO {nombre_fase} ---")
             try:
                 session = session_manager.crear_sesion_con_cookies(cookies)
+
+                # Verificación explícita contra la intranet: la presencia de la
+                # cookie en la sesión de Django no garantiza que siga vigente.
+                if not session_manager.verificar_sesion(session):
+                    raise SesionSIPEDExpirada()
+
                 mensaje = funcion_nucleo(session, *args, **kwargs)
                 logger.info(mensaje)
                 return mensaje
+            except (SesionSIPEDExpirada, PaginaInesperada):
+                # Estas excepciones deben llegar intactas al estado de Celery
+                # para que la UI pueda distinguir "sesión vencida" de un error
+                # genérico o de un resultado vacío.
+                logger.error("Fallo controlado en %s", nombre_fase, exc_info=True)
+                raise
             except Exception as e:
                 mensaje = f"Error fatal en {nombre_fase}: {e}"
                 logger.error(mensaje, exc_info=True)
-                raise Exception(mensaje)
+                raise Exception(mensaje) from e
         return wrapper
     return decorador
 

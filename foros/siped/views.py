@@ -13,6 +13,7 @@ from django.views.decorators.http import require_POST
 
 from . import gestor_almacenamiento, gestor_tareas, session_manager
 from .catalogos.dependencias import DEPENDENCIAS_POR_LOCALIDAD
+from .exceptions import SesionSIPEDExpirada
 from .forms import (
     BusquedaAvanzadaForm,
     DescargaPublicaForm,
@@ -55,17 +56,63 @@ def siped_login_required(view_func):
     """Decorador para restringir el acceso a usuarios sin sesión activa en SIPED."""
     @wraps(view_func)
     def _wrapped_view(request, *args, **kwargs):
-        if "siped_cookies" not in request.session:
+        if (
+            "siped_cookies" not in request.session
+            or "siped_username" not in request.session
+        ):
             messages.warning(request, "Por favor, inicia sesión para acceder a esta página.")
             return redirect("siped:login")
         return view_func(request, *args, **kwargs)
     return _wrapped_view
 
 
+def _limpiar_sesion_siped(request) -> None:
+    """Elimina las credenciales de la intranet sin cerrar la sesión de Django."""
+    request.session.pop("siped_cookies", None)
+    request.session.pop("siped_username", None)
+    request.session.modified = True
+
+
+def _sesion_remota_valida(request) -> bool:
+    """
+    Consulta la intranet para confirmar que la cookie almacenada sigue viva.
+
+    Sólo se considera inválida cuando el servidor remoto responde con el login;
+    los errores de red no cierran la sesión local.
+    """
+    cookies = request.session.get("siped_cookies")
+    if not cookies:
+        return False
+    session = session_manager.crear_sesion_con_cookies(cookies)
+    return session_manager.verificar_sesion(session)
+
+
+def _respuesta_sesion_expirada(request):
+    """Invalida la sesión local y ordena a HTMX volver al login."""
+    _limpiar_sesion_siped(request)
+    messages.warning(request, SesionSIPEDExpirada.MENSAJE_POR_DEFECTO)
+    response = render(request, "siped/_fragmento_mensajes.html")
+    response["HX-Redirect"] = reverse("siped:login")
+    return response
+
+
 def login_view(request):
     """Maneja la autenticación contra el sistema externo y establece la sesión local."""
-    if "siped_cookies" in request.session:
-        return redirect("siped:indice")
+    renovar = "renovar" in request.GET
+
+    # Si ya hay una cookie, sólo se reutiliza cuando la intranet confirma que
+    # sigue vigente. Antes bastaba con que la clave existiera, lo que dejaba al
+    # usuario atrapado con una sesión remota vencida y sin forma de reautenticarse.
+    if "siped_cookies" in request.session and not renovar:
+        if _sesion_remota_valida(request):
+            return redirect("siped:indice")
+        _limpiar_sesion_siped(request)
+        messages.warning(
+            request,
+            "La sesión de la intranet expiró. Ingresá tus credenciales nuevamente.",
+        )
+    elif renovar:
+        _limpiar_sesion_siped(request)
 
     if request.method == "POST":
         form = LoginForm(request.POST)
@@ -77,6 +124,8 @@ def login_view(request):
             cookies_dict = session_manager.autenticar_en_siped(username, password)
 
             if cookies_dict:
+                # Rotar el identificador de sesión evita fijación de sesión.
+                request.session.cycle_key()
                 request.session["siped_cookies"] = cookies_dict
                 request.session["siped_username"] = username
                 logger.info("Login exitoso para usuario: %s", username)
@@ -91,12 +140,14 @@ def login_view(request):
     return render(request, "siped/login.html", {"form": form})
 
 
+@require_POST
 @siped_login_required
 def logout_view(request):
     """Elimina las credenciales de sesión del usuario actual."""
     username = request.session.get("siped_username")
-    request.session.pop("siped_cookies", None)
-    request.session.pop("siped_username", None)
+    _limpiar_sesion_siped(request)
+    # Rota el ID de sesión sin cerrar la sesión de Django del usuario.
+    request.session.cycle_key()
     logger.info("Sesión cerrada para usuario: %s", username)
     messages.success(request, "Sesión cerrada exitosamente.")
     return redirect("siped:login")
@@ -112,6 +163,13 @@ def fragmento_mensajes(request):
 def indice(request):
     """Renderiza el panel principal con el estado de tareas y expedientes almacenados."""
     usuario = request.session.get("siped_username")
+
+    # La sesión de Django puede sobrevivir a la cookie de la intranet. Antes de
+    # mostrar el panel, confirmamos contra el sistema judicial que sigue activa.
+    if not _sesion_remota_valida(request):
+        _limpiar_sesion_siped(request)
+        messages.warning(request, SesionSIPEDExpirada.MENSAJE_POR_DEFECTO)
+        return redirect("siped:login")
 
     lista_pdf = gestor_almacenamiento.listar_documentos_pdf(usuario)
     lista_busquedas = gestor_almacenamiento.listar_reportes_busqueda(usuario)
@@ -167,6 +225,9 @@ def indice(request):
 @siped_login_required
 def iniciar_fase(request, nombre_fase):
     # R1: usar constantes de módulo en lugar del dict local
+    if not _sesion_remota_valida(request):
+        return _respuesta_sesion_expirada(request)
+
     if nombre_fase not in MAPA_TAREAS_CELERY:
         messages.error(request, f"Fase '{nombre_fase}' no reconocida.")
         return render(request, "siped/_fragmento_mensajes.html")
@@ -198,6 +259,9 @@ def iniciar_fase(request, nombre_fase):
 @require_POST
 @siped_login_required
 def iniciar_descarga_unico(request):
+    if not _sesion_remota_valida(request):
+        return _respuesta_sesion_expirada(request)
+
     nro_expediente = request.POST.get("expediente_seleccionado")
     nombre_real = "sincronizacion_individual"
     usuario = request.session["siped_username"]
@@ -230,6 +294,9 @@ def iniciar_descarga_unico(request):
 @require_POST
 @siped_login_required
 def iniciar_busqueda_avanzada(request):
+    if not _sesion_remota_valida(request):
+        return _respuesta_sesion_expirada(request)
+
     nombre_real = "busqueda_avanzada"
     usuario = request.session["siped_username"]
     nombre_fase = "fase_busqueda_avanzada"
@@ -266,6 +333,9 @@ def iniciar_busqueda_avanzada(request):
 @require_POST
 @siped_login_required
 def iniciar_descarga_publico(request):
+    if not _sesion_remota_valida(request):
+        return _respuesta_sesion_expirada(request)
+
     link_detalle = request.POST.get("link_detalle_seleccionado")
     nombre_real = "descarga_publica"
     usuario = request.session["siped_username"]
@@ -333,7 +403,17 @@ def fragmento_estado(request, nombre_fase):
     estado = gestor_tareas.obtener_estado_tarea(
         gestor_tareas.obtener_id_tarea(usuario, nombre_real), usuario, nombre_real
     )
-    
+
+    if estado.get("sesion_expirada"):
+        _limpiar_sesion_siped(request)
+        messages.warning(
+            request,
+            estado.get("resultado") or SesionSIPEDExpirada.MENSAJE_POR_DEFECTO,
+        )
+        response = render(request, "siped/_fragmento_mensajes.html")
+        response["HX-Redirect"] = reverse("siped:login")
+        return response
+
     response = render(request, "siped/_fragmento_estado.html", {"id_fase": nombre_fase, "estado": estado})
     
     if estado.get("recargar"):

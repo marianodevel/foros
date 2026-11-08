@@ -9,6 +9,7 @@ import requests
 from django.core.files.base import ContentFile
 
 from .. import gestor_almacenamiento, scraper_tasks
+from ..exceptions import SesionSIPEDExpirada
 from ..models import DocumentoAdjunto, Expediente
 from ..utils import manejar_fase_con_sesion
 
@@ -82,8 +83,7 @@ def ejecutar_descarga_publica(
                 continue
 
             try:
-                r_pdf = session.get(url_pdf, timeout=30)
-                r_pdf.raise_for_status()
+                contenido_pdf = scraper_tasks.descargar_pdf_en_memoria(session, url_pdf)
 
                 nuevo_documento = DocumentoAdjunto(
                     movimiento=mov,
@@ -91,10 +91,12 @@ def ejecutar_descarga_publica(
                     nombre_original=nombre_archivo_final,
                     es_consolidado=False,
                 )
-                nuevo_documento.archivo.save(nombre_archivo_final, ContentFile(r_pdf.content))
-                
+                nuevo_documento.archivo.save(nombre_archivo_final, ContentFile(contenido_pdf))
+
                 contador_descargas += 1
                 time.sleep(0.3)
+            except SesionSIPEDExpirada:
+                raise
             except Exception as e:
                 logger.error("Error procesando documento del movimiento %s: %s", mov.id, e)
 

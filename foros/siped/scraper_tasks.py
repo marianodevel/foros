@@ -11,6 +11,8 @@ from django.db.models import QuerySet
 
 from . import constants
 from . import parsers
+from . import session_manager
+from .exceptions import PaginaInesperada, SesionSIPEDExpirada
 from .models import Movimiento
 
 logger = logging.getLogger(__name__)
@@ -21,10 +23,33 @@ def descargar_archivo_en_memoria(session: requests.Session, url_archivo: str) ->
     try:
         respuesta = session.get(url_archivo, stream=True, timeout=30)
         respuesta.raise_for_status()
+        session_manager.verificar_respuesta_autenticada(respuesta)
         return respuesta.content
     except requests.RequestException as e:
         logger.error("Error descargando archivo desde %s: %s", url_archivo, e)
         return None
+
+
+def descargar_pdf_en_memoria(session: requests.Session, url_pdf: str) -> bytes:
+    """
+    Descarga un PDF validando que la intranet no haya devuelto su login.
+
+    Sin esta validación, una sesión vencida terminaba guardando el HTML del
+    formulario de acceso como si fuera un PDF.
+    """
+    respuesta = session.get(url_pdf, timeout=30)
+    respuesta.raise_for_status()
+
+    tipo = str(respuesta.headers.get("Content-Type", "")).lower()
+    contenido = respuesta.content
+    if "pdf" in tipo or b"%PDF" in contenido[:1024]:
+        return contenido
+
+    # Si no es un PDF, puede ser el login de la intranet o un error HTML.
+    session_manager.verificar_respuesta_autenticada(respuesta)
+    raise PaginaInesperada(
+        f"La descarga desde {url_pdf} no devolvió un archivo PDF."
+    )
 
 
 def raspar_lista_expedientes(session: requests.Session) -> List[Dict[str, str]]:
@@ -39,6 +64,7 @@ def raspar_lista_expedientes(session: requests.Session) -> List[Dict[str, str]]:
         try:
             r_lista = session.get(constants.LISTA_EXPEDIENTES_URL, params=params, timeout=30)
             r_lista.raise_for_status()
+            session_manager.verificar_respuesta_autenticada(r_lista)
 
             expedientes_en_pagina = parsers.parsear_lista_expedientes(r_lista.text)
             if not expedientes_en_pagina:
@@ -77,6 +103,7 @@ def raspar_movimientos_de_expediente(
         # 1. Petición inicial (puede ser frameset o contenido directo)
         r_detalle = session.get(link_contenedor, timeout=30)
         r_detalle.raise_for_status()
+        session_manager.verificar_respuesta_autenticada(r_detalle)
         soup = BeautifulSoup(r_detalle.text, "html.parser")
 
         # 2. Resolución dual (Lógica extraída del original)
@@ -85,12 +112,15 @@ def raspar_movimientos_de_expediente(
             url_contenido_real = urljoin(link_contenedor, frame_sup.get("src"))
             r_detalle = session.get(url_contenido_real, timeout=30)
             r_detalle.raise_for_status()
+            session_manager.verificar_respuesta_autenticada(r_detalle)
 
         # 3. Extracción de Parámetros AJAX
         ajax_params_base = parsers.parsear_detalle_para_ajax_params(r_detalle.text)
         if "exp_id" not in ajax_params_base:
-            logger.error("No se pudieron extraer los parámetros AJAX base para %s.", expediente_nro)
-            return []
+            raise PaginaInesperada(
+                "No se pudieron extraer los parámetros AJAX base para "
+                f"{expediente_nro}."
+            )
 
         # 4. Control de paginación temprana
         movimientos_existentes: QuerySet = Movimiento.objects.filter(
@@ -118,7 +148,9 @@ def raspar_movimientos_de_expediente(
             })
 
             r_movimientos = session.get(constants.AJAX_MOVIMIENTOS_URL, params=ajax_params, timeout=30)
-            
+            r_movimientos.raise_for_status()
+            session_manager.verificar_respuesta_autenticada(r_movimientos)
+
             if len(r_movimientos.text) < 200:
                 break
 
@@ -155,7 +187,14 @@ def raspar_contenido_documento(
     try:
         r_documento = session.get(document_url, timeout=30)
         r_documento.raise_for_status()
-        return parsers.parsear_pagina_documento(r_documento.text)
+        session_manager.verificar_respuesta_autenticada(r_documento)
+
+        datos = parsers.parsear_pagina_documento(r_documento.text)
+        if not datos["url_pdf_principal"] and not datos["adjuntos"] and not datos["firmantes"]:
+            raise PaginaInesperada(
+                f"La página del documento {document_url} no contiene datos reconocibles."
+            )
+        return datos
     except requests.RequestException as e:
         logger.error("Error al obtener el contenido documental en %s: %s", document_url, e)
         return None
@@ -202,6 +241,7 @@ def raspar_busqueda_parametrizada(
         try:
             respuesta = session.get(url_submit, params=payload, timeout=30)
             respuesta.raise_for_status()
+            session_manager.verificar_respuesta_autenticada(respuesta)
 
             expedientes_pagina = parsers.parsear_lista_publica(respuesta.text)
 

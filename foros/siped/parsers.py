@@ -6,6 +6,21 @@ from urllib.parse import urljoin
 from bs4 import BeautifulSoup
 
 from . import constants
+from .exceptions import PaginaInesperada
+
+_TEXTO_SIN_RESULTADOS = (
+    "no se encontr",
+    "sin resultado",
+    "no hay resultado",
+    "no existen resultado",
+    "no se registraron",
+)
+
+
+def _parece_pagina_sin_resultados(soup: BeautifulSoup) -> bool:
+    """Reconoce páginas legítimas que informan que la consulta no tuvo resultados."""
+    texto = soup.get_text(" ", strip=True).lower()
+    return any(marca in texto for marca in _TEXTO_SIN_RESULTADOS)
 
 
 def obtener_url_meta_refresh(html_content: str, base_url: str) -> Optional[str]:
@@ -69,7 +84,11 @@ def parsear_lista_expedientes(html_content: str) -> List[Dict[str, str]]:
     expedientes = []
 
     if not tabla:
-        return expedientes
+        if _parece_pagina_sin_resultados(soup):
+            return expedientes
+        raise PaginaInesperada(
+            "La respuesta no contiene la tabla de expedientes esperada."
+        )
 
     for fila in tabla.find_all("tr"):
         columnas = fila.find_all(["td", "th"])
@@ -235,7 +254,11 @@ def parsear_lista_publica(html_content: str) -> List[Dict[str, Optional[str]]]:
     expedientes = []
 
     if not tabla:
-        return expedientes
+        if _parece_pagina_sin_resultados(soup):
+            return expedientes
+        raise PaginaInesperada(
+            "La respuesta no contiene la tabla pública de expedientes esperada."
+        )
 
     for fila in tabla.find_all("tr"):
         columnas = fila.find_all(["td", "th"])

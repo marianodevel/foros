@@ -9,6 +9,7 @@ import requests
 from django.core.files.base import ContentFile
 
 from .. import scraper_tasks
+from ..exceptions import SesionSIPEDExpirada
 from ..models import DocumentoAdjunto, Expediente
 from ..utils import manejar_fase_con_sesion
 
@@ -67,20 +68,21 @@ def ejecutar_sincronizacion_documentos(session: requests.Session, username: str)
                     continue
 
                 try:
-                    r_pdf = session.get(url_pdf, timeout=30)
-                    r_pdf.raise_for_status()
-                    
+                    contenido_pdf = scraper_tasks.descargar_pdf_en_memoria(session, url_pdf)
+
                     nuevo_doc = DocumentoAdjunto(
                         movimiento=mov,
                         expediente=exp,
                         nombre_original=pdf_info["nombre"],
                         es_consolidado=False
                     )
-                    nuevo_doc.archivo.save(pdf_info["nombre"], ContentFile(r_pdf.content))
-                    
+                    nuevo_doc.archivo.save(pdf_info["nombre"], ContentFile(contenido_pdf))
+
                     contador_descargas += 1
                     nuevas_descargas_exp += 1
                     time.sleep(0.3)
+                except SesionSIPEDExpirada:
+                    raise
                 except Exception as e:
                     logger.error("Error descargando %s: %s", url_pdf, e)
 

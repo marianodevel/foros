@@ -5,6 +5,8 @@ from typing import Any, Dict, Optional
 from celery.result import AsyncResult
 from django.core.cache import cache
 
+from .exceptions import SesionSIPEDExpirada
+
 
 def _obtener_clave_cache(username: str, nombre_fase: str) -> str:
     """Genera una clave única en la caché para el usuario y la fase específica."""
@@ -20,29 +22,41 @@ def obtener_estado_tarea(id_tarea: Optional[str], username: str, nombre_fase: st
         return {"estado": "IDLE", "resultado": "En espera"}
 
     tarea = AsyncResult(id_tarea)
-    datos_estado = {"estado": tarea.state, "resultado": str(tarea.result)}
+    estado_tarea = tarea.state
+    resultado_tarea = tarea.result
+    datos_estado = {"estado": estado_tarea, "resultado": str(resultado_tarea)}
 
-    if tarea.state in ["SUCCESS", "FAILURE", "REVOKED"]:
+    if estado_tarea in ["SUCCESS", "FAILURE", "REVOKED"]:
         try:
             tarea.forget()
         except Exception:
             pass
-        
+
         resetear_id_tarea(username, nombre_fase)
         datos_estado["recargar"] = True
 
-        if tarea.state == "SUCCESS" and (
+        # La sesión remota de la intranet puede vencer mientras el worker
+        # ejecuta la fase. En ese caso la tarea falla con una excepción
+        # reconocible y la UI debe forzar un nuevo login, no mostrar "sin
+        # novedades" como si el proceso hubiera terminado bien.
+        if SesionSIPEDExpirada.es_resultado(resultado_tarea):
+            datos_estado["sesion_expirada"] = True
+            datos_estado["resultado"] = SesionSIPEDExpirada.limpiar_mensaje(
+                resultado_tarea
+            )
+
+        if estado_tarea == "SUCCESS" and (
             not datos_estado["resultado"] or datos_estado["resultado"] == "None"
         ):
             datos_estado["resultado"] = "Completado"
         return datos_estado
 
-    if tarea.state == "PENDING" and (
+    if estado_tarea == "PENDING" and (
         not datos_estado["resultado"] or datos_estado["resultado"] == "None"
     ):
         datos_estado["resultado"] = "En cola..."
 
-    if tarea.state == "STARTED" and (
+    if estado_tarea == "STARTED" and (
         not datos_estado["resultado"] or datos_estado["resultado"] == "None"
     ):
         datos_estado["resultado"] = "Procesando..."

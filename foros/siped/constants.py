@@ -9,6 +9,9 @@ LOGIN_URL = f"{BASE_URL}/servicios/controli2.php"
 LISTA_EXPEDIENTES_URL = f"{BASE_URL}/siped/expediente/buscar/submit_buscar_abogado.php"
 AJAX_MOVIMIENTOS_URL = f"{BASE_URL}/siped/expediente/buscar/ver_mas_escritosAjax.php"
 
+# Tiempo máximo para comprobar si la sesión de la intranet sigue viva.
+VERIFICACION_TIMEOUT = 15
+
 # Directorios de salida (Utilizamos el MEDIA_ROOT configurado por cookiecutter-django)
 # Si no está en MEDIA_ROOT, podemos usar el directorio ROOT del proyecto.
 DATA_ROOT_DIR = os.path.join(str(settings.APPS_DIR), "siped", "datos_usuarios")

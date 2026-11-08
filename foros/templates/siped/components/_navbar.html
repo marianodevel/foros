@@ -3,7 +3,15 @@
         <span class="navbar-brand mb-0 h1"><i class="bi bi-robot me-2"></i>SIPED Scraper</span>
         <div class="d-flex align-items-center text-white">
             <span class="me-3 small">Usuario: <strong>{{ username }}</strong></span>
-            <a href="{% url 'siped:logout' %}" class="btn btn-sm btn-outline-light">Cerrar Sesión</a>
+            <a href="{% url 'siped:login' %}?renovar=1"
+               class="btn btn-sm btn-outline-warning me-2"
+               title="Volver a ingresar las credenciales de la intranet">
+                <i class="bi bi-arrow-clockwise me-1"></i> Renovar sesión
+            </a>
+            <form method="post" action="{% url 'siped:logout' %}" class="d-inline">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-sm btn-outline-light">Cerrar Sesión</button>
+            </form>
         </div>
     </div>
 </nav>
