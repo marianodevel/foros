@@ -5,6 +5,7 @@ import ssl
 from pathlib import Path
 
 import environ
+from celery.schedules import crontab
 
 BASE_DIR = Path(__file__).resolve(strict=True).parent.parent.parent
 # foros/
@@ -301,6 +302,14 @@ CELERY_TASK_TIME_LIMIT = 5 * 60
 CELERY_TASK_SOFT_TIME_LIMIT = 60
 # https://docs.celeryq.dev/en/stable/userguide/configuration.html#beat-scheduler
 CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
+# El DatabaseScheduler sincroniza estas entradas a la base al arrancar Beat.
+CELERY_BEAT_SCHEDULE = {
+    "siped-polling-cambios": {
+        "task": "siped.encolar_polling_cambios",
+        "schedule": crontab(minute="*/30"),
+        "options": {"expires": 25 * 60},
+    },
+}
 # https://docs.celeryq.dev/en/stable/userguide/configuration.html#worker-send-task-events
 CELERY_WORKER_SEND_TASK_EVENTS = True
 # https://docs.celeryq.dev/en/stable/userguide/configuration.html#std-setting-task_send_sent_event

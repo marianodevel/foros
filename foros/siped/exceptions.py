@@ -38,6 +38,15 @@ class SesionSIPEDExpirada(ErrorSIPED):
         return mensaje or cls.MENSAJE_POR_DEFECTO
 
 
+class SolicitudIncompleta(ErrorSIPED):
+    """
+    No se pudo completar la lectura de una página de la intranet.
+
+    Se usa para no devolver una lista parcial como si fuera el resultado
+    completo: un escaneo incompleto no debe usarse para calcular diferencias.
+    """
+
+
 class PaginaInesperada(ErrorSIPED):
     """
     La respuesta no tiene la estructura esperada del sistema judicial.

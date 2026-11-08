@@ -110,9 +110,70 @@ def guardar_expedientes_lote(username: str, expedientes_data: List[Dict[str, Any
             )
 
 
+def sincronizar_lista_maestra(
+    username: str, expedientes_data: List[Dict[str, Any]]
+) -> Dict[str, List[Expediente]]:
+    """
+    Inserta o actualiza la lista maestra y clasifica los cambios detectados.
+
+    Un expediente se considera "actualizado" cuando cambió su último movimiento
+    o su estado. Los cambios puramente descriptivos (carátula, dependencia,
+    etc.) se guardan sin generar una novedad.
+
+    Args:
+        username: Identificador del usuario propietario de la lista.
+        expedientes_data: Filas extraídas de la lista maestra de la intranet.
+
+    Returns:
+        Diccionario con las claves ``nuevos`` y ``actualizados``, cada una con
+        la lista de instancias de ``Expediente`` afectadas.
+    """
+    nuevos: List[Expediente] = []
+    actualizados: List[Expediente] = []
+
+    with transaction.atomic():
+        for data in expedientes_data:
+            numero_exp = data.get("expediente", "").strip()
+            if not numero_exp:
+                continue
+
+            valores = {
+                "caratula":     data.get("caratula", ""),
+                "partes":       data.get("partes", ""),
+                "estado":       data.get("estado", ""),
+                "fec_ult_mov":  data.get("fec_ult_mov", ""),
+                "localidad":    data.get("localidad", ""),
+                "dependencia":  data.get("dependencia", ""),
+                "secretaria":   data.get("secretaria", ""),
+                "link_detalle": data.get("link_detalle", ""),
+                "origen":       data.get("origen", "PRIVADO"),
+            }
+
+            expediente, creado = Expediente.objects.get_or_create(
+                usuario_asignado=username,
+                numero_expediente=numero_exp,
+                defaults=valores,
+            )
+            if creado:
+                nuevos.append(expediente)
+                continue
+
+            cambio_relevante = (
+                expediente.fec_ult_mov != valores["fec_ult_mov"]
+                or expediente.estado != valores["estado"]
+            )
+            for campo, valor in valores.items():
+                setattr(expediente, campo, valor)
+            expediente.save()
+            if cambio_relevante:
+                actualizados.append(expediente)
+
+    return {"nuevos": nuevos, "actualizados": actualizados}
+
+
 def guardar_movimientos_lote(
     username: str, numero_expediente: str, movimientos_data: List[Dict[str, Any]]
-) -> None:
+) -> tuple[int, int]:
     """
     Inserta o actualiza un lote de movimientos asociados a un expediente específico.
     Usa link_escrito como clave de unicidad cuando está disponible, ya que es el
@@ -123,20 +184,27 @@ def guardar_movimientos_lote(
         username: Identificador del usuario propietario del expediente.
         numero_expediente: Número de expediente al que corresponden los movimientos.
         movimientos_data: Lista de diccionarios con los datos extraídos de la plataforma.
+
+    Returns:
+        Tupla ``(creados, actualizados)``. Si el expediente no existe devuelve
+        ``(0, 0)``.
     """
     try:
         expediente = Expediente.objects.get(
             usuario_asignado=username, numero_expediente=numero_expediente
         )
     except Expediente.DoesNotExist:
-        return
+        return 0, 0
+
+    creados = 0
+    actualizados = 0
 
     with transaction.atomic():
         for data in movimientos_data:
             link = data.get("link_escrito", "").strip()
 
             if link:
-                Movimiento.objects.update_or_create(
+                _, creado = Movimiento.objects.update_or_create(
                     expediente=expediente,
                     link_escrito=link,
                     defaults={
@@ -150,9 +218,13 @@ def guardar_movimientos_lote(
                         "fecha_publicacion":  data.get("fecha_publicacion", ""),
                     },
                 )
+                if creado:
+                    creados += 1
+                else:
+                    actualizados += 1
             else:
                 # Sin link: fallback al par nombre+fecha (movimientos sin documento)
-                Movimiento.objects.update_or_create(
+                _, creado = Movimiento.objects.update_or_create(
                     expediente=expediente,
                     nombre_escrito=data.get("nombre_escrito", ""),
                     fecha_presentacion=data.get("fecha_presentacion", ""),
@@ -166,3 +238,9 @@ def guardar_movimientos_lote(
                         "link_escrito":      "",
                     },
                 )
+                if creado:
+                    creados += 1
+                else:
+                    actualizados += 1
+
+    return creados, actualizados

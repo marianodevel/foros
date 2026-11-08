@@ -13,6 +13,7 @@ from django.views.decorators.http import require_POST
 
 from . import gestor_almacenamiento, gestor_tareas, session_manager
 from .catalogos.dependencias import DEPENDENCIAS_POR_LOCALIDAD
+from .cripto import cifrar_cookies
 from .exceptions import SesionSIPEDExpirada
 from .forms import (
     BusquedaAvanzadaForm,
@@ -20,7 +21,14 @@ from .forms import (
     LoginForm,
     SincronizacionIndividualForm,
 )
-from .models import DocumentoAdjunto, Expediente, Movimiento, ReporteBusqueda
+from .models import (
+    DocumentoAdjunto,
+    Expediente,
+    Movimiento,
+    NovedadSIPED,
+    ReporteBusqueda,
+    SesionSIPED,
+)
 from .tasks import (
     busqueda_avanzada_task,
     descarga_publica_task,
@@ -66,11 +74,38 @@ def siped_login_required(view_func):
     return _wrapped_view
 
 
+def _guardar_sesion_siped(username: str, cookies: dict) -> None:
+    """
+    Persiste la sesión de la intranet para que el polling pueda usarla.
+
+    Las cookies se almacenan cifradas; la contraseña nunca se guarda.
+    """
+    SesionSIPED.objects.update_or_create(
+        username_intranet=username,
+        defaults={
+            "cookies_cifradas": cifrar_cookies(cookies),
+            "estado": SesionSIPED.Estado.ACTIVA,
+            "ultimo_error": "",
+            "fallos_consecutivos": 0,
+            "proximo_intento": None,
+        },
+    )
+
+
 def _limpiar_sesion_siped(request) -> None:
     """Elimina las credenciales de la intranet sin cerrar la sesión de Django."""
+    username = request.session.get("siped_username")
     request.session.pop("siped_cookies", None)
     request.session.pop("siped_username", None)
     request.session.modified = True
+
+    # Se conserva el registro para que el polling sepa que debe esperar un
+    # nuevo login en lugar de seguir intentando con una cookie vencida.
+    if username:
+        SesionSIPED.objects.filter(username_intranet=username).update(
+            estado=SesionSIPED.Estado.EXPIRADA,
+            cookies_cifradas="",
+        )
 
 
 def _sesion_remota_valida(request) -> bool:
@@ -128,6 +163,7 @@ def login_view(request):
                 request.session.cycle_key()
                 request.session["siped_cookies"] = cookies_dict
                 request.session["siped_username"] = username
+                _guardar_sesion_siped(username, cookies_dict)
                 logger.info("Login exitoso para usuario: %s", username)
                 messages.success(request, f"Bienvenido, {username}! Sesión iniciada.")
                 return redirect("siped:indice")
@@ -146,6 +182,10 @@ def logout_view(request):
     """Elimina las credenciales de sesión del usuario actual."""
     username = request.session.get("siped_username")
     _limpiar_sesion_siped(request)
+    if username:
+        # Un logout explícito corta el polling hasta que el usuario vuelva a
+        # iniciar sesión; no se conserva la cookie cifrada.
+        SesionSIPED.objects.filter(username_intranet=username).delete()
     # Rota el ID de sesión sin cerrar la sesión de Django del usuario.
     request.session.cycle_key()
     logger.info("Sesión cerrada para usuario: %s", username)
@@ -187,6 +227,13 @@ def indice(request):
     ).exists()
     expedientes_disponibles = Expediente.objects.filter(usuario_asignado=usuario).values()
 
+    novedades = (
+        NovedadSIPED.objects.filter(usuario_asignado=usuario, procesada=True)
+        .select_related("expediente")
+        .order_by("-detectada_en")
+    )
+    total_novedades = novedades.filter(vista=False).count()
+
     # R1: usar constante de módulo en lugar del dict local
     estados_tareas = {}
     for clave_plantilla, nombre_real in MAPA_FASES.items():
@@ -207,6 +254,8 @@ def indice(request):
         "existe_publico_csv":      existe_publico_csv,
         "lista_busquedas":         lista_busquedas,
         "estados_tareas":          estados_tareas,
+        "novedades":               novedades[:10],
+        "total_novedades":         total_novedades,
         "username":                usuario,
         "expedientes_disponibles": expedientes_disponibles,
         "form_busqueda":           form_busqueda,
@@ -219,6 +268,18 @@ def indice(request):
     }
     
     return render(request, "siped/index.html", context)
+
+
+@require_POST
+@siped_login_required
+def marcar_novedades_vistas(request):
+    """Marca como vistas todas las novedades del polling automático."""
+    usuario = request.session.get("siped_username")
+    NovedadSIPED.objects.filter(usuario_asignado=usuario, vista=False).update(
+        vista=True
+    )
+    messages.success(request, "Novedades marcadas como vistas.")
+    return redirect("siped:indice")
 
 
 @require_POST
@@ -660,8 +721,16 @@ def dashboard(request):
         .annotate(ultimo_movimiento_id=Max("movimientos__id"))
         .order_by("-ultimo_movimiento_id")
     )
+
+    novedades = (
+        NovedadSIPED.objects.filter(usuario_asignado=usuario, procesada=True)
+        .select_related("expediente")
+        .order_by("-detectada_en")
+    )
     return render(request, "siped/dashboard.html", {
         "expedientes": expedientes,
+        "novedades": novedades[:10],
+        "total_novedades": novedades.filter(vista=False).count(),
         "username": usuario,
     })
 

@@ -18,6 +18,9 @@ urlpatterns = [
     path("iniciar_busqueda_avanzada/", views.iniciar_busqueda_avanzada, name="iniciar_busqueda_avanzada"),
     path("iniciar_descarga_publico/", views.iniciar_descarga_publico, name="iniciar_descarga_publico"),
     
+    # Novedades del polling automático
+    path("novedades/marcar_vistas/", views.marcar_novedades_vistas, name="marcar_novedades_vistas"),
+
     # Endpoints de estado y fragmentos (AJAX/HTMX)
     path("resetear_estado/<str:nombre_fase>/", views.resetear_estado, name="resetear_estado"),
     path("fragmento/estado/<str:nombre_fase>/", views.fragmento_estado, name="fragmento_estado"),

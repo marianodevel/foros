@@ -1,0 +1,42 @@
+{% if total_novedades or novedades %}
+<div class="card shadow-sm mb-4 border-warning">
+    <div class="card-header d-flex justify-content-between align-items-center bg-warning-subtle">
+        <span class="fw-bold">
+            <i class="bi bi-bell me-1"></i> Novedades del polling automático
+            {% if total_novedades %}
+                <span class="badge bg-warning text-dark ms-2">{{ total_novedades }} sin ver</span>
+            {% endif %}
+        </span>
+        {% if total_novedades %}
+        <form method="post" action="{% url 'siped:marcar_novedades_vistas' %}" class="mb-0">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-sm btn-outline-dark">
+                <i class="bi bi-check2-all me-1"></i> Marcar como vistas
+            </button>
+        </form>
+        {% endif %}
+    </div>
+    <div class="card-body p-0">
+        <ul class="list-group list-group-flush">
+            {% for novedad in novedades %}
+            <li class="list-group-item d-flex justify-content-between align-items-start {% if not novedad.vista %}bg-warning-subtle{% endif %}">
+                <div>
+                    {% if novedad.tipo == 'EXPEDIENTE_NUEVO' %}
+                        <span class="badge bg-success">{{ novedad.get_tipo_display }}</span>
+                    {% else %}
+                        <span class="badge bg-info text-dark">{{ novedad.get_tipo_display }}</span>
+                    {% endif %}
+                    <a href="{% url 'siped:dashboard' %}" class="ms-2 fw-semibold text-decoration-none">
+                        {{ novedad.expediente.numero_expediente }}
+                    </a>
+                    <div class="small text-muted mt-1">{{ novedad.detalle }}</div>
+                </div>
+                <small class="text-muted text-nowrap ms-3">
+                    {{ novedad.detectada_en|date:"d/m/Y H:i" }}
+                </small>
+            </li>
+            {% endfor %}
+        </ul>
+    </div>
+</div>
+{% endif %}

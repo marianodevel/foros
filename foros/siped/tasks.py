@@ -12,6 +12,10 @@ from .fases.sincronizacion_publica import ejecutar_sincronizacion_publica
 from .fases.sincronizacion_busqueda_avanzada import ejecutar_busqueda_avanzada
 from .fases.sincronizacion_individual import ejecutar_sincronizacion_individual
 from .fases.descarga_publica import ejecutar_descarga_publica
+from .fases.polling_cambios import (
+    encolar_polling_cambios,
+    ejecutar_polling_usuario,
+)
 
 logger = get_task_logger(__name__)
 
@@ -57,3 +61,20 @@ def descarga_publica_task(self, cookies: dict, link_detalle: str, username: str)
     return ejecutar_descarga_publica(
         cookies=cookies, link_detalle_objetivo=link_detalle, username=username
     )
+
+
+@shared_task(name="siped.encolar_polling_cambios")
+def encolar_polling_cambios_task() -> int:
+    """Encola un polling por cada sesión activa (tarea periódica de Beat)."""
+    return encolar_polling_cambios()
+
+
+@shared_task(
+    bind=True,
+    name="siped.polling_cambios_usuario",
+    soft_time_limit=1500,
+    time_limit=1560,
+)
+def polling_cambios_usuario_task(self, username_intranet: str) -> str:
+    """Consulta la lista maestra de un usuario y refresca sus novedades."""
+    return ejecutar_polling_usuario(username_intranet)

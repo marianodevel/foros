@@ -12,6 +12,14 @@ AJAX_MOVIMIENTOS_URL = f"{BASE_URL}/siped/expediente/buscar/ver_mas_escritosAjax
 # Tiempo máximo para comprobar si la sesión de la intranet sigue viva.
 VERIFICACION_TIMEOUT = 15
 
+# Polling automático de cambios en la lista maestra.
+POLLING_INTERVALO_MINUTOS = 30
+POLLING_JITTER_MAXIMO = 300  # segundos de dispersión al encolar cada usuario
+POLLING_BLOQUEO_MINUTOS = 25  # duración del bloqueo por usuario
+POLLING_MAX_EXPEDIENTES = 50  # expedientes con movimientos a refrescar por corrida
+POLLING_ESPERA_MINIMA = 0.5
+POLLING_ESPERA_MAXIMA = 1.5
+
 # Directorios de salida (Utilizamos el MEDIA_ROOT configurado por cookiecutter-django)
 # Si no está en MEDIA_ROOT, podemos usar el directorio ROOT del proyecto.
 DATA_ROOT_DIR = os.path.join(str(settings.APPS_DIR), "siped", "datos_usuarios")

@@ -10,7 +10,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from . import constants
 from . import session_manager
-from .exceptions import PaginaInesperada, SesionSIPEDExpirada
+from .exceptions import PaginaInesperada, SesionSIPEDExpirada, SolicitudIncompleta
 
 logger = logging.getLogger(__name__)
 
@@ -135,7 +135,7 @@ def manejar_fase_con_sesion(nombre_fase: str) -> Callable:
                 mensaje = funcion_nucleo(session, *args, **kwargs)
                 logger.info(mensaje)
                 return mensaje
-            except (SesionSIPEDExpirada, PaginaInesperada):
+            except (SesionSIPEDExpirada, PaginaInesperada, SolicitudIncompleta):
                 # Estas excepciones deben llegar intactas al estado de Celery
                 # para que la UI pueda distinguir "sesión vencida" de un error
                 # genérico o de un resultado vacío.

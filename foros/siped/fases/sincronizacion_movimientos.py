@@ -5,7 +5,7 @@ import requests
 
 from .. import scraper_tasks
 from .. import gestor_almacenamiento
-from ..exceptions import SesionSIPEDExpirada
+from ..exceptions import SesionSIPEDExpirada, SolicitudIncompleta
 from ..models import Expediente
 from ..utils import manejar_fase_con_sesion
 
@@ -64,9 +64,10 @@ def ejecutar_sincronizacion_movimientos(session: requests.Session, username: str
             else:
                 logger.info("  > Sin novedades.")
 
-        except SesionSIPEDExpirada:
-            # Una cookie vencida afecta a todos los expedientes: no tiene
-            # sentido seguir iterando y reportar un éxito parcial.
+        except (SesionSIPEDExpirada, SolicitudIncompleta):
+            # Tanto una cookie vencida como un error de red afectan a todos los
+            # expedientes: no tiene sentido seguir iterando y reportar un éxito
+            # parcial.
             raise
         except Exception as e:
             logger.error(

@@ -12,7 +12,7 @@ from django.db.models import QuerySet
 from . import constants
 from . import parsers
 from . import session_manager
-from .exceptions import PaginaInesperada, SesionSIPEDExpirada
+from .exceptions import PaginaInesperada, SesionSIPEDExpirada, SolicitudIncompleta
 from .models import Movimiento
 
 logger = logging.getLogger(__name__)
@@ -80,8 +80,13 @@ def raspar_lista_expedientes(session: requests.Session) -> List[Dict[str, str]]:
                 break
 
         except requests.RequestException as e:
+            # Devolver una lista parcial haría creer al polling que los
+            # expedientes faltantes desaparecieron de la intranet.
             logger.error("Error al obtener la página %d: %s", page_count, e)
-            break
+            raise SolicitudIncompleta(
+                f"No se pudo completar la lista de expedientes en la página "
+                f"{page_count}: {e}"
+            ) from e
 
     return all_expedientes_list
 
@@ -123,10 +128,24 @@ def raspar_movimientos_de_expediente(
             )
 
         # 4. Control de paginación temprana
+        # El filtro debe acotarse al expediente concreto: si sólo se usa el
+        # número, un usuario que ya tiene el historial completo puede hacer que
+        # otro usuario deje de paginar antes de recibir sus propios movimientos.
         movimientos_existentes: QuerySet = Movimiento.objects.filter(
             expediente__numero_expediente=expediente_nro
-        ).values_list('link_escrito', flat=True)
-        enlaces_conocidos = {enlace for enlace in movimientos_existentes if enlace}
+        )
+        expediente_id = expediente_dict.get("expediente_id")
+        if expediente_id:
+            movimientos_existentes = movimientos_existentes.filter(
+                expediente_id=expediente_id
+            )
+        enlaces_conocidos = {
+            enlace
+            for enlace in movimientos_existentes.values_list(
+                "link_escrito", flat=True
+            )
+            if enlace
+        }
 
         offset = 0
         mov_page_count = 1
@@ -175,7 +194,9 @@ def raspar_movimientos_de_expediente(
 
     except requests.RequestException as e:
         logger.error("Error de red procesando expediente %s: %s", expediente_nro, e)
-        return []
+        raise SolicitudIncompleta(
+            f"No se pudieron obtener los movimientos de {expediente_nro}: {e}"
+        ) from e
 
 
 def raspar_contenido_documento(

@@ -25,6 +25,77 @@ class Expediente(models.Model):
         return f"{self.numero_expediente} ({self.usuario_asignado}) - {self.origen}"
 
 
+class SesionSIPED(models.Model):
+    """
+    Sesión de la intranet persistida para poder consultarla desde Celery.
+
+    Las cookies se guardan cifradas y nunca se almacena la contraseña. La
+    clave es el usuario de la intranet, que es el mismo identificador que usa
+    ``Expediente.usuario_asignado``.
+    """
+
+    class Estado(models.TextChoices):
+        ACTIVA = "ACTIVA", "Activa"
+        EXPIRADA = "EXPIRADA", "Expirada"
+
+    username_intranet = models.CharField(max_length=50, unique=True, db_index=True)
+    cookies_cifradas = models.TextField(blank=True)
+    estado = models.CharField(
+        max_length=10,
+        choices=Estado.choices,
+        default=Estado.ACTIVA,
+        db_index=True,
+    )
+    actualizado_en = models.DateTimeField(auto_now=True)
+    ultimo_polling = models.DateTimeField(null=True, blank=True)
+    ultimo_error = models.TextField(blank=True)
+    fallos_consecutivos = models.PositiveIntegerField(default=0)
+    proximo_intento = models.DateTimeField(null=True, blank=True)
+    bloqueado_hasta = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "sesiones_siped"
+        verbose_name = "sesión de SIPED"
+        verbose_name_plural = "sesiones de SIPED"
+
+    def __str__(self) -> str:
+        return f"{self.username_intranet} ({self.get_estado_display()})"
+
+
+class NovedadSIPED(models.Model):
+    """
+    Cambio detectado por el polling automático.
+
+    También funciona como cola de trabajo: ``procesada=False`` indica que los
+    movimientos del expediente todavía deben refrescarse. ``vista`` controla
+    el aviso en la interfaz.
+    """
+
+    class Tipo(models.TextChoices):
+        EXPEDIENTE_NUEVO = "EXPEDIENTE_NUEVO", "Expediente nuevo"
+        MOVIMIENTOS_NUEVOS = "MOVIMIENTOS_NUEVOS", "Movimientos nuevos"
+
+    usuario_asignado = models.CharField(max_length=50, db_index=True)
+    expediente = models.ForeignKey(
+        Expediente, on_delete=models.CASCADE, related_name="novedades"
+    )
+    tipo = models.CharField(max_length=25, choices=Tipo.choices)
+    cantidad_movimientos = models.PositiveIntegerField(default=0)
+    detalle = models.CharField(max_length=255, blank=True)
+    detectada_en = models.DateTimeField(auto_now_add=True)
+    procesada = models.BooleanField(default=False, db_index=True)
+    vista = models.BooleanField(default=False, db_index=True)
+
+    class Meta:
+        db_table = "novedades_siped"
+        ordering = ["-detectada_en"]
+        verbose_name = "novedad de SIPED"
+        verbose_name_plural = "novedades de SIPED"
+
+    def __str__(self) -> str:
+        return f"{self.expediente.numero_expediente} - {self.get_tipo_display()}"
+
+
 class Movimiento(models.Model):
     """Modelo que representa un movimiento o escrito dentro de un expediente."""
 

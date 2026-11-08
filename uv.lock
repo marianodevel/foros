@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = "==3.14.*"
 
 [[package]]
@@ -886,6 +886,7 @@ dependencies = [
     { name = "beautifulsoup4" },
     { name = "celery" },
     { name = "crispy-bootstrap5" },
+    { name = "cryptography" },
     { name = "django" },
     { name = "django-allauth", extra = ["mfa"] },
     { name = "django-anymail" },
@@ -944,6 +945,7 @@ requires-dist = [
     { name = "beautifulsoup4", specifier = ">=4.12.0" },
     { name = "celery", specifier = "==5.6.3" },
     { name = "crispy-bootstrap5", specifier = "==2026.3" },
+    { name = "cryptography", specifier = "==48.0.0" },
     { name = "django", specifier = "==6.0.5" },
     { name = "django-allauth", extras = ["mfa"], specifier = "==65.17.0" },
     { name = "django-anymail", extras = ["postmark"], specifier = "==15.0" },
