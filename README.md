@@ -31,15 +31,19 @@ Running type checks with mypy:
 
 ### Test coverage
 
-To run the tests, check your test coverage, and generate an HTML coverage report:
+This project runs on Docker. Run the tests inside the local stack, not with a
+host virtualenv:
 
-    uv run coverage run -m pytest
-    uv run coverage html
-    uv run open htmlcov/index.html
+    just pytest
 
-#### Running tests with pytest
+To check coverage and generate an HTML report:
 
-    uv run pytest
+    just pytest --cov=foros --cov-report=html
+    xdg-open htmlcov/index.html
+
+> The `uv run ...` commands in the cookiecutter-django template assume a host
+> environment; here the composed stack (PostgreSQL, Redis and the project
+> settings in `.envs/.local/`) is the supported test environment.
 
 ### Live reloading and Sass CSS compilation
 
