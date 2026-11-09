@@ -5,6 +5,7 @@ from datetime import date
 import pytest
 from django.utils import timezone
 
+from foros.siped.fechas import formatear_fecha_hora_intranet
 from foros.siped.fechas import formatear_fecha_intranet
 from foros.siped.fechas import parsear_fecha_hora_intranet
 from foros.siped.fechas import parsear_fecha_intranet
@@ -43,6 +44,13 @@ class TestParsearFechaHoraIntranet:
         assert timezone.is_aware(valor)
         assert local.strftime("%d/%m/%Y %H:%M:%S") == "15/11/2024 11:12:07"
 
+    def test_fecha_hora_sin_segundos(self) -> None:
+        valor = parsear_fecha_hora_intranet("15/11/2024 11:12")
+
+        local = timezone.localtime(valor, timezone.get_default_timezone())
+        assert timezone.is_aware(valor)
+        assert local.strftime("%d/%m/%Y %H:%M:%S") == "15/11/2024 11:12:00"
+
     def test_asume_la_zona_del_proyecto(self) -> None:
         valor = parsear_fecha_hora_intranet("15/11/2024 11:12:07")
 
@@ -72,3 +80,13 @@ class TestFormatearFechaIntranet:
 
     def test_sin_fecha(self) -> None:
         assert formatear_fecha_intranet(None) == ""
+
+
+class TestFormatearFechaHoraIntranet:
+    def test_fecha_hora(self) -> None:
+        valor = parsear_fecha_hora_intranet("15/11/2024 11:12:07")
+
+        assert formatear_fecha_hora_intranet(valor) == "15/11/2024 11:12:07"
+
+    def test_sin_fecha_hora(self) -> None:
+        assert formatear_fecha_hora_intranet(None) == ""

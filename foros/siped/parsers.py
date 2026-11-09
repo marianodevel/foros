@@ -1,6 +1,7 @@
 """Módulo de análisis HTML para extraer estructuras y datos del sistema judicial."""
 
 import re
+import unicodedata
 from typing import Any, Dict, List, Optional
 from urllib.parse import urljoin
 from bs4 import BeautifulSoup
@@ -152,7 +153,83 @@ def parsear_detalle_para_ajax_params(html_detalle: str) -> Dict[str, str]:
     return params
 
 
-def parsear_movimientos_de_ajax_html(html_content: str, expediente_nro: str) -> List[Dict[str, str]]:
+_CAMPOS_MOVIMIENTO_POR_ENCABEZADO = {
+    "nombre": "codigo_escrito",
+    "tasa": "tasa",
+    "fecha presentacion": "fecha_presentacion",
+    "tipo": "tipo",
+    "estado": "estado",
+    "generado por": "generado_por",
+    "descripcion/detalle": "descripcion",
+    "fecha firma": "fecha_firma",
+    "fecha publicacion": "fecha_publicacion",
+}
+
+# Orden vigente de la tabla de movimientos. Se usa como respaldo cuando la
+# respuesta no trae encabezados reconocibles.
+_COLUMNAS_MOVIMIENTO_POR_DEFECTO = {
+    "codigo_escrito": 1,
+    "tasa": 2,
+    "fecha_presentacion": 3,
+    "tipo": 4,
+    "estado": 5,
+    "generado_por": 6,
+    "descripcion": 7,
+    "fecha_firma": 8,
+    "fecha_publicacion": 9,
+}
+
+
+def _normalizar_encabezado(texto: str) -> str:
+    """Pasa a minúsculas y quita tildes para comparar encabezados."""
+    sin_tildes = "".join(
+        caracter
+        for caracter in unicodedata.normalize("NFKD", texto)
+        if not unicodedata.combining(caracter)
+    )
+    return " ".join(sin_tildes.casefold().split())
+
+
+def _mapa_columnas_movimiento(tabla: BeautifulSoup) -> dict[str, int]:
+    """
+    Devuelve el índice de cada campo según los ``<th>`` de la tabla.
+
+    La intranet agregó la columna ``Fecha Firma`` y desplazó ``Fecha
+    Publicación``. Mapear por nombre evita que el próximo cambio de orden vuelva
+    a mezclar los datos. Si no hay encabezados reconocibles se usa el orden
+    conocido como respaldo.
+    """
+    for fila in tabla.find_all("tr"):
+        encabezados = fila.find_all("th")
+        if not encabezados:
+            continue
+
+        mapa = {}
+        for indice, celda in enumerate(encabezados):
+            campo = _CAMPOS_MOVIMIENTO_POR_ENCABEZADO.get(
+                _normalizar_encabezado(celda.get_text(" ", strip=True)),
+            )
+            if campo:
+                mapa[campo] = indice
+
+        if {"tipo", "estado", "fecha_publicacion"}.issubset(mapa):
+            return mapa
+
+    return dict(_COLUMNAS_MOVIMIENTO_POR_DEFECTO)
+
+
+def _texto_columna(columnas, indice: int | None) -> str:
+    """Devuelve el texto de una celda o cadena vacía si no existe."""
+    if indice is None or indice >= len(columnas):
+        return ""
+
+    return columnas[indice].get_text(strip=True)
+
+
+def parsear_movimientos_de_ajax_html(
+    html_content: str,
+    expediente_nro: str,
+) -> list[dict[str, str]]:
     soup = BeautifulSoup(html_content, "html.parser")
     tabla = soup.find("table", class_="table-hover") or soup.find("table")
     movimientos = []
@@ -160,43 +237,65 @@ def parsear_movimientos_de_ajax_html(html_content: str, expediente_nro: str) -> 
     if not tabla:
         return movimientos
 
+    columnas_por_campo = _mapa_columnas_movimiento(tabla)
+    maximo_indice = max(columnas_por_campo.values())
+
     for fila in tabla.find_all("tr"):
         columnas = fila.find_all(["td", "th"])
         if not columnas or columnas[0].name == "th":
             continue
+        if len(columnas) <= maximo_indice:
+            continue
 
-        if len(columnas) >= 6:
-            btn_link = fila.find("form", action=True)
-            link_escrito = ""
-            nombre_escrito = ""
+        textos = {
+            campo: _texto_columna(columnas, indice)
+            for campo, indice in columnas_por_campo.items()
+        }
+        # Una tabla vieja puede no traer todas las columnas; completamos con
+        # vacío para que el resto del parseo no dependa del layout.
+        for campo in _COLUMNAS_MOVIMIENTO_POR_DEFECTO:
+            textos.setdefault(campo, "")
 
-            if btn_link:
-                link_escrito = btn_link.get("action", "")
-                btn_submit = btn_link.find("input", type="submit")
-                if btn_submit:
-                    nombre_escrito = btn_submit.get("value", "").strip()
+        btn_link = fila.find("form", action=True)
+        link_escrito = ""
+        codigo_escrito = ""
 
-            font_tag = columnas[6].find("font", title=True) if len(columnas) > 6 else None
+        if btn_link:
+            link_escrito = btn_link.get("action", "")
+            btn_submit = btn_link.find("input", type="submit")
+            if btn_submit:
+                codigo_escrito = btn_submit.get("value", "").strip()
+
+        indice_descripcion = columnas_por_campo.get("descripcion")
+        if indice_descripcion is None:
+            descripcion = ""
+        else:
+            font_tag = columnas[indice_descripcion].find("font", title=True)
             descripcion = (
                 font_tag.get("title", "").strip()
                 if font_tag
-                else (columnas[6].get_text(strip=True) if len(columnas) > 6 else "")
+                else textos["descripcion"]
             )
 
-            movimientos.append(
-                {
-                    "expediente_nro": expediente_nro,
-                    "fecha_presentacion": columnas[2].get_text(strip=True) if len(columnas) > 2 else "",
-                    "nombre_escrito": nombre_escrito or (columnas[1].get_text(strip=True) if len(columnas) > 1 else ""),
-                    "tipo": columnas[3].get_text(strip=True) if len(columnas) > 3 else "",
-                    "estado": columnas[4].get_text(strip=True) if len(columnas) > 4 else "",
-                    "generado_por": columnas[5].get_text(strip=True) if len(columnas) > 5 else "",
-                    "descripcion": descripcion,
-                    "fecha_firma": columnas[7].get_text(strip=True) if len(columnas) > 7 else "",
-                    "fecha_publicacion": columnas[8].get_text(strip=True) if len(columnas) > 8 else "",
-                    "link_escrito": urljoin(constants.AJAX_MOVIMIENTOS_URL, link_escrito) if link_escrito else "",
-                }
-            )
+        movimientos.append(
+            {
+                "expediente_nro": expediente_nro,
+                "codigo_escrito": codigo_escrito or textos["codigo_escrito"],
+                "tasa": textos["tasa"],
+                "fecha_presentacion": textos["fecha_presentacion"],
+                "tipo": textos["tipo"],
+                "estado": textos["estado"],
+                "generado_por": textos["generado_por"],
+                "descripcion": descripcion,
+                "fecha_firma": textos["fecha_firma"],
+                "fecha_publicacion": textos["fecha_publicacion"],
+                "link_escrito": (
+                    urljoin(constants.AJAX_MOVIMIENTOS_URL, link_escrito)
+                    if link_escrito
+                    else ""
+                ),
+            },
+        )
 
     return movimientos
 

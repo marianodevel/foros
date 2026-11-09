@@ -124,14 +124,15 @@ class TestDeteccionDeCambios:
             link_detalle="https://intranet/detalle.php?exp=123",
         )
         movimiento = {
-            "fecha_presentacion": "02/02/2024",
-            "nombre_escrito": "Escrito nuevo",
-            "tipo": "Escrito",
-            "estado": "Presentado",
-            "generado_por": "Abogado",
-            "descripcion": "",
+            "codigo_escrito": "PE1234567-2024",
+            "tasa": "",
+            "fecha_presentacion": "02/02/2024 10:00:00",
+            "tipo": "ESCRITO",
+            "estado": "PUBLICADO",
+            "generado_por": "ABOGADO",
+            "descripcion": "Escrito nuevo",
             "fecha_firma": "",
-            "fecha_publicacion": "",
+            "fecha_publicacion": "02/02/2024 10:05",
             "link_escrito": "https://intranet/ver_escrito.php?id=99",
         }
 
@@ -394,7 +395,7 @@ class TestScrapers:
         Movimiento.objects.create(
             expediente=otro,
             link_escrito="https://intranet/ver_escrito.php?id=1",
-            nombre_escrito="Escrito existente",
+            codigo_escrito="PE1234567-2024",
         )
         propio = Expediente.objects.create(
             usuario_asignado="abogado",
@@ -410,20 +411,25 @@ class TestScrapers:
             """
             <html><body>
             <table class="table-hover">
-              <tr><th>#</th><th>Escrito</th><th>Fecha</th><th>Tipo</th>
-                  <th>Estado</th><th>Generado</th><th>Desc</th></tr>
+              <tr><th></th><th>Nombre</th><th>Tasa</th><th>Fecha Presentación</th>
+                  <th>Tipo</th><th>Estado</th><th>Generado por</th>
+                  <th>Descripción/detalle</th><th>Fecha Firma</th>
+                  <th>Fecha Publicación</th></tr>
               <tr>
-                <td>1</td>
+                <td></td>
+                <td>PE1234567-2024</td>
+                <td></td>
+                <td>02/02/2024 10:00:00</td>
+                <td>ESCRITO</td>
+                <td>PUBLICADO</td>
+                <td>ABOGADO</td>
                 <td>Escrito nuevo</td>
-                <td>02/02/2024</td>
-                <td>Escrito</td>
-                <td>Presentado</td>
-                <td>Abogado</td>
-                <td>Descripcion</td>
-                <td>02/02/2024</td>
-                <td>02/02/2024</td>
+                <td></td>
+                <td>02/02/2024 10:05</td>
+                <td></td>
+                <td></td>
                 <form action="https://intranet/ver_escrito.php?id=1">
-                  <input type="submit" value="Escrito nuevo">
+                  <input type="submit" value="PE1234567-2024">
                 </form>
               </tr>
             </table>

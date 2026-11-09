@@ -1,15 +1,21 @@
 """Módulo para la persistencia y consulta de datos del sistema judicial."""
 
-from typing import Any, Dict, List
+from typing import Any
 
 from django.db import transaction
+from django.db.models import Max
+from django.db.models.functions import Greatest
+from django.utils import timezone
 
 from .fechas import parsear_fecha_hora_intranet
 from .fechas import parsear_fecha_intranet
-from .models import DocumentoAdjunto, Expediente, Movimiento, ReporteBusqueda
+from .models import DocumentoAdjunto
+from .models import Expediente
+from .models import Movimiento
+from .models import ReporteBusqueda
 
 
-def _valores_expediente(data: Dict[str, Any]) -> Dict[str, Any]:
+def _valores_expediente(data: dict[str, Any]) -> dict[str, Any]:
     """Traduce una fila extraída por los parsers a campos del modelo.
 
     ``fec_ult_mov`` llega como texto ``dd/mm/yyyy`` desde la intranet; en la
@@ -30,7 +36,7 @@ def _valores_expediente(data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def listar_documentos_pdf(username: str) -> List[str]:
+def listar_documentos_pdf(username: str) -> list[str]:
     """
     Recupera los nombres originales de los PDFs consolidados asociados a un usuario.
     Solo retorna consolidados para evitar duplicados en la lista de la UI.
@@ -43,7 +49,7 @@ def listar_documentos_pdf(username: str) -> List[str]:
     """
     documentos = DocumentoAdjunto.objects.filter(
         expediente__usuario_asignado=username,
-        es_consolidado=True
+        es_consolidado=True,
     ).order_by("-fecha_creacion")
 
     return [doc.nombre_original for doc in documentos]
@@ -62,7 +68,7 @@ def verificar_existencia_expedientes(username: str) -> bool:
     return Expediente.objects.filter(usuario_asignado=username).exists()
 
 
-def listar_expedientes_con_movimientos(username: str) -> List[str]:
+def listar_expedientes_con_movimientos(username: str) -> list[str]:
     """
     Obtiene los números de expediente que poseen movimientos extraídos.
 
@@ -78,10 +84,10 @@ def listar_expedientes_con_movimientos(username: str) -> List[str]:
         .values_list("numero_expediente", flat=True)
     )
 
-    return sorted(list(expedientes))
+    return sorted(expedientes)
 
 
-def listar_reportes_busqueda(username: str) -> List[str]:
+def listar_reportes_busqueda(username: str) -> list[str]:
     """
     Recupera los nombres de los archivos CSV generados por búsquedas avanzadas.
 
@@ -92,7 +98,7 @@ def listar_reportes_busqueda(username: str) -> List[str]:
         Lista de nombres de archivo ordenados por fecha de generación.
     """
     reportes = ReporteBusqueda.objects.filter(usuario_asignado=username).order_by(
-        "-fecha_generacion"
+        "-fecha_generacion",
     )
 
     return [
@@ -102,9 +108,13 @@ def listar_reportes_busqueda(username: str) -> List[str]:
     ]
 
 
-def guardar_expedientes_lote(username: str, expedientes_data: List[Dict[str, Any]]) -> None:
+def guardar_expedientes_lote(
+    username: str,
+    expedientes_data: list[dict[str, Any]],
+) -> None:
     """
-    Inserta o actualiza un lote de expedientes en la base de datos de forma transaccional.
+    Inserta o actualiza un lote de expedientes en la base de datos de forma
+    transaccional.
 
     Args:
         username: Identificador del usuario al que pertenecen los expedientes.
@@ -124,8 +134,8 @@ def guardar_expedientes_lote(username: str, expedientes_data: List[Dict[str, Any
 
 
 def sincronizar_lista_maestra(
-    username: str, expedientes_data: List[Dict[str, Any]]
-) -> Dict[str, List[Expediente]]:
+    username: str, expedientes_data: list[dict[str, Any]],
+) -> dict[str, list[Expediente]]:
     """
     Inserta o actualiza la lista maestra y clasifica los cambios detectados.
 
@@ -141,8 +151,8 @@ def sincronizar_lista_maestra(
         Diccionario con las claves ``nuevos`` y ``actualizados``, cada una con
         la lista de instancias de ``Expediente`` afectadas.
     """
-    nuevos: List[Expediente] = []
-    actualizados: List[Expediente] = []
+    nuevos: list[Expediente] = []
+    actualizados: list[Expediente] = []
 
     with transaction.atomic():
         for data in expedientes_data:
@@ -174,19 +184,53 @@ def sincronizar_lista_maestra(
     return {"nuevos": nuevos, "actualizados": actualizados}
 
 
+def _texto_movimiento(data: dict[str, Any], clave: str) -> str:
+    """Devuelve el valor de ``data`` como texto sin espacios sobrantes."""
+    valor = data.get(clave)
+    return valor.strip() if isinstance(valor, str) else ""
+
+
+def _valores_movimiento(data: dict[str, Any]) -> dict[str, Any]:
+    """Traduce una fila de la tabla de movimientos a campos del modelo."""
+    return {
+        "codigo_escrito": _texto_movimiento(data, "codigo_escrito"),
+        "tasa": _texto_movimiento(data, "tasa"),
+        "fecha_presentacion": parsear_fecha_hora_intranet(
+            data.get("fecha_presentacion"),
+        ),
+        "tipo": _texto_movimiento(data, "tipo"),
+        "estado": _texto_movimiento(data, "estado"),
+        "generado_por": _texto_movimiento(data, "generado_por"),
+        "descripcion": _texto_movimiento(data, "descripcion"),
+        "fecha_firma": parsear_fecha_hora_intranet(data.get("fecha_firma")),
+        "fecha_publicacion": parsear_fecha_hora_intranet(
+            data.get("fecha_publicacion"),
+        ),
+    }
+
+
 def guardar_movimientos_lote(
-    username: str, numero_expediente: str, movimientos_data: List[Dict[str, Any]]
+    username: str,
+    numero_expediente: str,
+    movimientos_data: list[dict[str, Any]],
 ) -> tuple[int, int]:
     """
     Inserta o actualiza un lote de movimientos asociados a un expediente específico.
-    Usa link_escrito como clave de unicidad cuando está disponible, ya que es el
-    identificador más estable extraído del HTML. Cuando el movimiento no tiene link
-    (ej: providencias sin documento adjunto), hace fallback a nombre+fecha.
+
+    Usa ``link_escrito`` como clave de unicidad cuando está disponible, ya que
+    es el identificador más estable extraído del HTML. Cuando el movimiento no
+    tiene link (por ejemplo, providencias sin documento adjunto) usa el código
+    de escrito junto con la fecha de presentación como clave.
+
+    Al finalizar, adelanta ``Expediente.fecha_ult_mov`` si los movimientos
+    sincronizados son más recientes que la fecha que informó la lista maestra.
+    Sólo avanza: nunca retrocede una fecha ya guardada.
 
     Args:
         username: Identificador del usuario propietario del expediente.
         numero_expediente: Número de expediente al que corresponden los movimientos.
-        movimientos_data: Lista de diccionarios con los datos extraídos de la plataforma.
+        movimientos_data: Lista de diccionarios con los datos extraídos de la
+            plataforma.
 
     Returns:
         Tupla ``(creados, actualizados)``. Si el expediente no existe devuelve
@@ -194,7 +238,8 @@ def guardar_movimientos_lote(
     """
     try:
         expediente = Expediente.objects.get(
-            usuario_asignado=username, numero_expediente=numero_expediente
+            usuario_asignado=username,
+            numero_expediente=numero_expediente,
         )
     except Expediente.DoesNotExist:
         return 0, 0
@@ -204,50 +249,57 @@ def guardar_movimientos_lote(
 
     with transaction.atomic():
         for data in movimientos_data:
-            link = data.get("link_escrito", "").strip()
+            valores = _valores_movimiento(data)
+            link = _texto_movimiento(data, "link_escrito")
+            codigo = valores["codigo_escrito"]
+
+            # Algunas respuestas incluyen filas separadoras vacías. Sin link
+            # ni código no hay forma de identificar el movimiento.
+            if not link and not codigo:
+                continue
 
             if link:
-                _, creado = Movimiento.objects.update_or_create(
-                    expediente=expediente,
-                    link_escrito=link,
-                    defaults={
-                        "fecha_presentacion": data.get("fecha_presentacion", ""),
-                        "nombre_escrito":     data.get("nombre_escrito", ""),
-                        "tipo":               data.get("tipo", ""),
-                        "estado":             data.get("estado", ""),
-                        "generado_por":       data.get("generado_por", ""),
-                        "descripcion":        data.get("descripcion", ""),
-                        "fecha_firma":        data.get("fecha_firma", ""),
-                        "fecha_publicacion":  parsear_fecha_hora_intranet(
-                            data.get("fecha_publicacion"),
-                        ),
-                    },
-                )
-                if creado:
-                    creados += 1
-                else:
-                    actualizados += 1
+                lookup = {"expediente": expediente, "link_escrito": link}
+                defaults = valores
             else:
-                # Sin link: fallback al par nombre+fecha (movimientos sin documento)
-                _, creado = Movimiento.objects.update_or_create(
-                    expediente=expediente,
-                    nombre_escrito=data.get("nombre_escrito", ""),
-                    fecha_presentacion=data.get("fecha_presentacion", ""),
-                    defaults={
-                        "tipo":              data.get("tipo", ""),
-                        "estado":            data.get("estado", ""),
-                        "generado_por":      data.get("generado_por", ""),
-                        "descripcion":       data.get("descripcion", ""),
-                        "fecha_firma":       data.get("fecha_firma", ""),
-                        "fecha_publicacion": parsear_fecha_hora_intranet(
-                            data.get("fecha_publicacion"),
-                        ),
-                        "link_escrito":      "",
-                    },
-                )
-                if creado:
-                    creados += 1
-                else:
-                    actualizados += 1
+                lookup = {
+                    "expediente": expediente,
+                    "codigo_escrito": codigo,
+                    "fecha_presentacion": valores["fecha_presentacion"],
+                }
+                defaults = {**valores, "link_escrito": ""}
+
+            _, creado = Movimiento.objects.update_or_create(
+                defaults=defaults,
+                **lookup,
+            )
+            if creado:
+                creados += 1
+            else:
+                actualizados += 1
+
+        _adelantar_fecha_ult_mov(expediente)
 
     return creados, actualizados
+
+
+def _adelantar_fecha_ult_mov(expediente: Expediente) -> None:
+    """Actualiza ``fecha_ult_mov`` si los movimientos guardados son posteriores."""
+    ultima = Movimiento.objects.filter(expediente=expediente).aggregate(
+        ultima=Max(
+            Greatest("fecha_presentacion", "fecha_firma", "fecha_publicacion"),
+        ),
+    )["ultima"]
+
+    if not ultima:
+        return
+
+    fecha_local = timezone.localtime(
+        ultima,
+        timezone.get_default_timezone(),
+    ).date()
+    if expediente.fecha_ult_mov is None or fecha_local > expediente.fecha_ult_mov:
+        Expediente.objects.filter(pk=expediente.pk).update(
+            fecha_ult_mov=fecha_local,
+        )
+        expediente.fecha_ult_mov = fecha_local

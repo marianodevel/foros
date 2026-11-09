@@ -105,15 +105,39 @@ class Movimiento(models.Model):
     """Modelo que representa un movimiento o escrito dentro de un expediente."""
 
     expediente = models.ForeignKey(
-        Expediente, on_delete=models.CASCADE, related_name="movimientos"
+        Expediente,
+        on_delete=models.CASCADE,
+        related_name="movimientos",
     )
-    fecha_presentacion = models.CharField(max_length=50, null=True, blank=True)
-    nombre_escrito = models.CharField(max_length=255, null=True, blank=True)
+    codigo_escrito = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+        help_text=(
+            "Código de la presentación electrónica "
+            "(por ejemplo, PE1234567-2026)."
+        ),
+    )
+    tasa = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+        help_text="Estado de bonos y tasas informado por la intranet.",
+    )
+    fecha_presentacion = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Presentación del escrito (hora de Argentina), ya convertida.",
+    )
     tipo = models.CharField(max_length=255, null=True, blank=True)
     estado = models.CharField(max_length=100, null=True, blank=True)
     generado_por = models.CharField(max_length=255, null=True, blank=True)
     descripcion = models.TextField(null=True, blank=True)
-    fecha_firma = models.CharField(max_length=50, null=True, blank=True)
+    fecha_firma = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Firma del movimiento (hora de Argentina), ya convertida.",
+    )
     fecha_publicacion = models.DateTimeField(
         null=True,
         blank=True,
@@ -125,7 +149,9 @@ class Movimiento(models.Model):
         db_table = "movimientos"
 
     def __str__(self) -> str:
-        return f"{self.nombre_escrito} - {self.fecha_presentacion}"
+        fecha = self.fecha_presentacion or self.fecha_publicacion or self.fecha_firma
+        identificador = self.codigo_escrito or self.tipo or "Movimiento"
+        return f"{identificador} - {fecha or 'sin fecha'}"
 
 
 class DocumentoAdjunto(models.Model):

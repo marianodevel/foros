@@ -16,6 +16,7 @@ from . import gestor_almacenamiento, gestor_tareas, session_manager
 from .catalogos.dependencias import DEPENDENCIAS_POR_LOCALIDAD
 from .cripto import cifrar_cookies
 from .exceptions import SesionSIPEDExpirada
+from .fechas import formatear_fecha_hora_intranet
 from .fechas import formatear_fecha_intranet
 from .forms import (
     BusquedaAvanzadaForm,
@@ -639,34 +640,58 @@ def exportar_expedientes_publicos_csv(request):
     return response
 
 
+_COLUMNAS_MOVIMIENTOS_CSV = [
+    "Expediente",
+    "Codigo Escrito",
+    "Fecha Presentacion",
+    "Tipo",
+    "Estado",
+    "Generado Por",
+    "Descripcion",
+    "Fecha Firma",
+    "Fecha Publicacion",
+    "Link PDF",
+]
+
+
+def _fila_movimiento_csv(mov: Movimiento) -> list[str]:
+    """Devuelve una fila de movimiento con las columnas reales de la intranet."""
+    return [
+        mov.expediente.numero_expediente,
+        mov.codigo_escrito or "",
+        formatear_fecha_hora_intranet(mov.fecha_presentacion),
+        mov.tipo or "",
+        mov.estado or "",
+        mov.generado_por or "",
+        mov.descripcion or "",
+        formatear_fecha_hora_intranet(mov.fecha_firma),
+        formatear_fecha_hora_intranet(mov.fecha_publicacion),
+        mov.link_escrito or "",
+    ]
+
+
 @siped_login_required
 def exportar_movimientos_todos(request):
     usuario = request.session.get("siped_username")
-    movimientos = Movimiento.objects.filter(
-        expediente__usuario_asignado=usuario, 
-        expediente__origen="PRIVADO"
-    ).select_related('expediente').order_by("expediente__numero_expediente", "-id")
+    movimientos = (
+        Movimiento.objects.filter(
+            expediente__usuario_asignado=usuario,
+            expediente__origen="PRIVADO",
+        )
+        .select_related("expediente")
+        .order_by("expediente__numero_expediente", "-id")
+    )
 
-    response = HttpResponse(content_type='text/csv')
-    response['Content-Disposition'] = 'attachment; filename="historial_movimientos_completo.csv"'
+    response = HttpResponse(content_type="text/csv")
+    response["Content-Disposition"] = (
+        'attachment; filename="historial_movimientos_completo.csv"'
+    )
 
     writer = csv.writer(response)
-    writer.writerow([
-        'Expediente', 'Fecha Presentacion', 'Nombre Escrito', 
-        'Tipo', 'Estado', 'Generado Por', 'Fecha Firma', 'Link PDF'
-    ])
+    writer.writerow(_COLUMNAS_MOVIMIENTOS_CSV)
 
     for mov in movimientos:
-        writer.writerow([
-            mov.expediente.numero_expediente,
-            mov.fecha_presentacion,
-            mov.nombre_escrito,
-            mov.tipo,
-            mov.estado,
-            mov.generado_por,
-            mov.fecha_firma,
-            mov.link_escrito
-        ])
+        writer.writerow(_fila_movimiento_csv(mov))
 
     return response
 
@@ -674,38 +699,28 @@ def exportar_movimientos_todos(request):
 @siped_login_required
 def exportar_movimientos_individual(request):
     usuario = request.session.get("siped_username")
-    nro_exp = request.GET.get('exp')
-    
+    nro_exp = request.GET.get("exp")
+
     if not nro_exp:
         messages.warning(request, "Debe especificar un expediente.")
-        return redirect('siped:indice')
-        
+        return redirect("siped:indice")
+
     movimientos = Movimiento.objects.filter(
         expediente__usuario_asignado=usuario,
-        expediente__numero_expediente=nro_exp
+        expediente__numero_expediente=nro_exp,
     ).order_by("-id")
-    
+
     nombre_seguro = nro_exp.replace("/", "-").replace("\\", "-")
-    response = HttpResponse(content_type='text/csv')
-    response['Content-Disposition'] = f'attachment; filename="movimientos_{nombre_seguro}.csv"'
+    response = HttpResponse(content_type="text/csv")
+    response["Content-Disposition"] = (
+        f'attachment; filename="movimientos_{nombre_seguro}.csv"'
+    )
 
     writer = csv.writer(response)
-    writer.writerow([
-        'Expediente', 'Fecha Presentacion', 'Nombre Escrito', 
-        'Tipo', 'Estado', 'Generado Por', 'Fecha Firma', 'Link PDF'
-    ])
+    writer.writerow(_COLUMNAS_MOVIMIENTOS_CSV)
 
     for mov in movimientos:
-        writer.writerow([
-            mov.expediente.numero_expediente,
-            mov.fecha_presentacion,
-            mov.nombre_escrito,
-            mov.tipo,
-            mov.estado,
-            mov.generado_por,
-            mov.fecha_firma,
-            mov.link_escrito
-        ])
+        writer.writerow(_fila_movimiento_csv(mov))
 
     return response
 
@@ -757,12 +772,28 @@ def debug_expediente(request, nro_expediente):
         html += f"<p><strong>Total de movimientos registrados en la BD:</strong> {exp.movimientos.count()}</p>"
         html += "<h3>Últimos 15 movimientos:</h3>"
         html += "<table border='1' cellpadding='8' style='border-collapse: collapse; text-align: left;'>"
-        html += "<tr style='background-color: #f2f2f2;'><th>Fecha</th><th>Tiene Link PDF</th><th>Nombre del Escrito</th><th>Estado</th></tr>"
+        html += (
+            "<tr style='background-color: #f2f2f2;'>"
+            "<th>Código</th><th>Fecha</th><th>Tiene Link PDF</th>"
+            "<th>Tipo</th><th>Estado</th><th>Generado por</th>"
+            "<th>Descripción</th></tr>"
+        )
 
         for m in movs:
             tiene_link = "SÍ" if m.link_escrito else "NO"
             color = "green" if tiene_link == "SÍ" else "red"
-            html += f"<tr><td>{m.fecha_presentacion}</td><td style='color: {color}; font-weight: bold;'>{tiene_link}</td><td>{m.nombre_escrito}</td><td>{m.estado}</td></tr>"
+            fecha = (
+                m.fecha_presentacion
+                or m.fecha_firma
+                or m.fecha_publicacion
+                or "sin fecha"
+            )
+            html += (
+                f"<tr><td>{m.codigo_escrito}</td><td>{fecha}</td>"
+                f"<td style='color: {color}; font-weight: bold;'>{tiene_link}</td>"
+                f"<td>{m.tipo}</td><td>{m.estado}</td>"
+                f"<td>{m.generado_por}</td><td>{m.descripcion}</td></tr>"
+            )
 
         html += "</table></div>"
         return HttpResponse(html)
