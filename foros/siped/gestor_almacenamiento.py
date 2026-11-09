@@ -4,6 +4,7 @@ from typing import Any, Dict, List
 
 from django.db import transaction
 
+from .fechas import parsear_fecha_hora_intranet
 from .fechas import parsear_fecha_intranet
 from .models import DocumentoAdjunto, Expediente, Movimiento, ReporteBusqueda
 
@@ -217,7 +218,9 @@ def guardar_movimientos_lote(
                         "generado_por":       data.get("generado_por", ""),
                         "descripcion":        data.get("descripcion", ""),
                         "fecha_firma":        data.get("fecha_firma", ""),
-                        "fecha_publicacion":  data.get("fecha_publicacion", ""),
+                        "fecha_publicacion":  parsear_fecha_hora_intranet(
+                            data.get("fecha_publicacion"),
+                        ),
                     },
                 )
                 if creado:
@@ -236,7 +239,9 @@ def guardar_movimientos_lote(
                         "generado_por":      data.get("generado_por", ""),
                         "descripcion":       data.get("descripcion", ""),
                         "fecha_firma":       data.get("fecha_firma", ""),
-                        "fecha_publicacion": data.get("fecha_publicacion", ""),
+                        "fecha_publicacion": parsear_fecha_hora_intranet(
+                            data.get("fecha_publicacion"),
+                        ),
                         "link_escrito":      "",
                     },
                 )

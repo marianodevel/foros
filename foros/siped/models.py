@@ -114,7 +114,11 @@ class Movimiento(models.Model):
     generado_por = models.CharField(max_length=255, null=True, blank=True)
     descripcion = models.TextField(null=True, blank=True)
     fecha_firma = models.CharField(max_length=50, null=True, blank=True)
-    fecha_publicacion = models.CharField(max_length=50, null=True, blank=True)
+    fecha_publicacion = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Publicación en la intranet (hora de Argentina), ya convertida.",
+    )
     link_escrito = models.CharField(max_length=500, null=True, blank=True)
 
     class Meta:
