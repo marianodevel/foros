@@ -1,6 +1,7 @@
 """Formularios y validadores para la aplicación SIPED."""
 
 from django import forms
+from django.db.models import F
 
 from .catalogos.abogados import ABOGADOS
 from .catalogos.localidades import LOCALIDADES
@@ -44,10 +45,13 @@ class SincronizacionIndividualForm(forms.Form):
         usuario = kwargs.pop("usuario", None)
         super().__init__(*args, **kwargs)
         if usuario:
-            self.fields["expediente_seleccionado"].queryset = Expediente.objects.filter(
-                usuario_asignado=usuario, origen="PRIVADO"
+            self.fields["expediente_seleccionado"].queryset = (
+                Expediente.objects.filter(
+                    usuario_asignado=usuario,
+                    origen="PRIVADO",
+                ).order_by(F("fecha_ult_mov").desc(nulls_last=True))
             )
-        
+
         self.fields["expediente_seleccionado"].label_from_instance = (
             lambda obj: f"{obj.numero_expediente} - {obj.caratula}"
         )
@@ -67,10 +71,13 @@ class DescargaPublicaForm(forms.Form):
         usuario = kwargs.pop("usuario", None)
         super().__init__(*args, **kwargs)
         if usuario:
-            self.fields["link_detalle_seleccionado"].queryset = Expediente.objects.filter(
-                usuario_asignado=usuario, origen__in=["PUBLICO", "BUSQUEDA_AVANZADA"]
+            self.fields["link_detalle_seleccionado"].queryset = (
+                Expediente.objects.filter(
+                    usuario_asignado=usuario,
+                    origen__in=["PUBLICO", "BUSQUEDA_AVANZADA"],
+                ).order_by(F("fecha_ult_mov").desc(nulls_last=True))
             )
-            
+
         self.fields["link_detalle_seleccionado"].label_from_instance = (
             lambda obj: f"{obj.numero_expediente} - {obj.caratula}"
         )

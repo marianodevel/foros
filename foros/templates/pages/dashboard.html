@@ -276,7 +276,7 @@
               <li class="exp-item">
                 <span class="exp-nro">{{ exp.numero_expediente }}</span>
                 <span class="exp-car" title="{{ exp.caratula }}">{{ exp.caratula|truncatechars:40 }}</span>
-                <span class="exp-date">{{ exp.fec_ult_mov }}</span>
+                <span class="exp-date">{{ exp.fecha_ult_mov|date:"d/m/Y" }}</span>
               </li>
               {% endfor %}
             </ul>

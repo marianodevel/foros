@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 from datetime import timedelta
 from unittest.mock import Mock
 from unittest.mock import patch
@@ -118,7 +119,7 @@ class TestDeteccionDeCambios:
             usuario_asignado="abogado",
             numero_expediente="123/2024",
             caratula="PEREZ C GOMEZ",
-            fec_ult_mov="01/02/2024",
+            fecha_ult_mov=date(2024, 2, 1),
             estado="En letra",
             link_detalle="https://intranet/detalle.php?exp=123",
         )
@@ -151,7 +152,7 @@ class TestDeteccionDeCambios:
 
         expediente.refresh_from_db()
         novedad = NovedadSIPED.objects.get(expediente=expediente)
-        assert expediente.fec_ult_mov == "02/02/2024"
+        assert expediente.fecha_ult_mov == date(2024, 2, 2)
         assert novedad.tipo == NovedadSIPED.Tipo.MOVIMIENTOS_NUEVOS
         assert novedad.procesada is True
         assert novedad.cantidad_movimientos == 1
@@ -164,7 +165,7 @@ class TestDeteccionDeCambios:
             usuario_asignado="abogado",
             numero_expediente="123/2024",
             caratula="PEREZ C GOMEZ",
-            fec_ult_mov="01/02/2024",
+            fecha_ult_mov=date(2024, 2, 1),
             estado="En letra",
             link_detalle="https://intranet/detalle.php?exp=123",
         )
@@ -193,7 +194,7 @@ class TestDeteccionDeCambios:
             usuario_asignado="abogado",
             numero_expediente="123/2024",
             caratula="PEREZ C GOMEZ",
-            fec_ult_mov="01/02/2024",
+            fecha_ult_mov=date(2024, 2, 1),
             estado="En letra",
             link_detalle="https://intranet/detalle.php?exp=123",
         )
@@ -220,7 +221,7 @@ class TestDeteccionDeCambios:
             usuario_asignado="abogado",
             numero_expediente="123/2024",
             caratula="CARATULA VIEJA",
-            fec_ult_mov="01/02/2024",
+            fecha_ult_mov=date(2024, 2, 1),
             estado="En letra",
             link_detalle="https://intranet/detalle.php?exp=123",
         )
@@ -241,7 +242,7 @@ class TestDeteccionDeCambios:
             usuario_asignado="abogado",
             numero_expediente="123/2024",
             caratula="PEREZ C GOMEZ",
-            fec_ult_mov="01/02/2024",
+            fecha_ult_mov=date(2024, 2, 1),
             estado="En letra",
             link_detalle="https://intranet/detalle.php?exp=123",
         )

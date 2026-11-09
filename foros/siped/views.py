@@ -6,6 +6,7 @@ import logging
 from functools import wraps
 
 from django.contrib import messages
+from django.db.models import F
 from django.http import FileResponse, Http404, HttpResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
@@ -15,6 +16,7 @@ from . import gestor_almacenamiento, gestor_tareas, session_manager
 from .catalogos.dependencias import DEPENDENCIAS_POR_LOCALIDAD
 from .cripto import cifrar_cookies
 from .exceptions import SesionSIPEDExpirada
+from .fechas import formatear_fecha_intranet
 from .forms import (
     BusquedaAvanzadaForm,
     DescargaPublicaForm,
@@ -431,7 +433,10 @@ def iniciar_descarga_publico(request):
 @siped_login_required
 def opciones_busqueda_avanzada(request):
     usuario = request.session.get("siped_username")
-    expedientes = Expediente.objects.filter(usuario_asignado=usuario, origen="BUSQUEDA_AVANZADA")
+    expedientes = Expediente.objects.filter(
+        usuario_asignado=usuario,
+        origen__in=["PUBLICO", "BUSQUEDA_AVANZADA"],
+    ).order_by(F("fecha_ult_mov").desc(nulls_last=True))
 
     opciones = ['<option value="">Seleccione un expediente...</option>']
     for exp in expedientes:
@@ -596,7 +601,7 @@ def exportar_expedientes_csv(request):
             exp.dependencia,
             exp.secretaria,
             exp.estado,
-            exp.fec_ult_mov,
+            formatear_fecha_intranet(exp.fecha_ult_mov),
             exp.localidad
         ])
 
@@ -627,7 +632,7 @@ def exportar_expedientes_publicos_csv(request):
             exp.localidad,
             exp.dependencia,
             exp.secretaria,
-            exp.fec_ult_mov,
+            formatear_fecha_intranet(exp.fecha_ult_mov),
             exp.origen,
         ])
 

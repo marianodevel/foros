@@ -21,6 +21,7 @@ from ..cripto import descifrar_cookies
 from ..exceptions import PaginaInesperada
 from ..exceptions import SesionSIPEDExpirada
 from ..exceptions import SolicitudIncompleta
+from ..fechas import formatear_fecha_intranet
 from ..models import NovedadSIPED
 from ..models import SesionSIPED
 
@@ -182,7 +183,8 @@ def _registrar_cambios(
                 username,
                 expediente,
                 NovedadSIPED.Tipo.MOVIMIENTOS_NUEVOS,
-                f"Último movimiento: {expediente.fec_ult_mov}",
+                "Último movimiento: "
+                f"{formatear_fecha_intranet(expediente.fecha_ult_mov) or 'sin fecha'}",
             ):
                 creadas += 1
     return creadas

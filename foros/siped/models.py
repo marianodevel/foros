@@ -11,7 +11,12 @@ class Expediente(models.Model):
     caratula = models.CharField(max_length=255)
     partes = models.CharField(max_length=255, null=True, blank=True)
     estado = models.CharField(max_length=100, null=True, blank=True)
-    fec_ult_mov = models.CharField(max_length=20, null=True, blank=True)
+    fecha_ult_mov = models.DateField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="Último movimiento según la intranet, ya convertido a fecha.",
+    )
     localidad = models.CharField(max_length=255, null=True, blank=True)
     dependencia = models.CharField(max_length=255, null=True, blank=True)
     secretaria = models.CharField(max_length=255, null=True, blank=True)

@@ -4,7 +4,29 @@ from typing import Any, Dict, List
 
 from django.db import transaction
 
+from .fechas import parsear_fecha_intranet
 from .models import DocumentoAdjunto, Expediente, Movimiento, ReporteBusqueda
+
+
+def _valores_expediente(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Traduce una fila extraída por los parsers a campos del modelo.
+
+    ``fec_ult_mov`` llega como texto ``dd/mm/yyyy`` desde la intranet; en la
+    base se guarda como ``fecha_ult_mov`` (``DateField``). La celda vacía se
+    convierte en ``NULL``: los expedientes públicos no informan último
+    movimiento y no deben inventar una fecha.
+    """
+    return {
+        "caratula":      data.get("caratula", ""),
+        "partes":        data.get("partes", ""),
+        "estado":        data.get("estado", ""),
+        "fecha_ult_mov": parsear_fecha_intranet(data.get("fec_ult_mov")),
+        "localidad":     data.get("localidad", ""),
+        "dependencia":   data.get("dependencia", ""),
+        "secretaria":    data.get("secretaria", ""),
+        "link_detalle":  data.get("link_detalle", ""),
+        "origen":        data.get("origen", "PRIVADO"),
+    }
 
 
 def listar_documentos_pdf(username: str) -> List[str]:
@@ -96,17 +118,7 @@ def guardar_expedientes_lote(username: str, expedientes_data: List[Dict[str, Any
             Expediente.objects.update_or_create(
                 usuario_asignado=username,
                 numero_expediente=numero_exp,
-                defaults={
-                    "caratula":     data.get("caratula", ""),
-                    "partes":       data.get("partes", ""),
-                    "estado":       data.get("estado", ""),
-                    "fec_ult_mov":  data.get("fec_ult_mov", ""),
-                    "localidad":    data.get("localidad", ""),
-                    "dependencia":  data.get("dependencia", ""),
-                    "secretaria":   data.get("secretaria", ""),
-                    "link_detalle": data.get("link_detalle", ""),
-                    "origen":       data.get("origen", "PRIVADO"),
-                },
+                defaults=_valores_expediente(data),
             )
 
 
@@ -137,17 +149,7 @@ def sincronizar_lista_maestra(
             if not numero_exp:
                 continue
 
-            valores = {
-                "caratula":     data.get("caratula", ""),
-                "partes":       data.get("partes", ""),
-                "estado":       data.get("estado", ""),
-                "fec_ult_mov":  data.get("fec_ult_mov", ""),
-                "localidad":    data.get("localidad", ""),
-                "dependencia":  data.get("dependencia", ""),
-                "secretaria":   data.get("secretaria", ""),
-                "link_detalle": data.get("link_detalle", ""),
-                "origen":       data.get("origen", "PRIVADO"),
-            }
+            valores = _valores_expediente(data)
 
             expediente, creado = Expediente.objects.get_or_create(
                 usuario_asignado=username,
@@ -159,7 +161,7 @@ def sincronizar_lista_maestra(
                 continue
 
             cambio_relevante = (
-                expediente.fec_ult_mov != valores["fec_ult_mov"]
+                expediente.fecha_ult_mov != valores["fecha_ult_mov"]
                 or expediente.estado != valores["estado"]
             )
             for campo, valor in valores.items():
