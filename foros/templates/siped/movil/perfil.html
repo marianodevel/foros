@@ -1,0 +1,94 @@
+{% extends "siped/movil/base.html" %}
+{% block titulo %}Perfil{% endblock %}
+
+{% block movil_content %}
+<section class="tarjeta">
+  <h2>Cuenta</h2>
+  <div class="fila">
+    <span class="texto-suave">Usuario</span>
+    <strong>{{ usuario }}</strong>
+  </div>
+  <div class="fila">
+    <span class="texto-suave">Sesión de la intranet</span>
+    <span class="chip {% if sesion_activa %}chip-ok{% else %}chip-error{% endif %}">
+      {% if sesion_activa %}Activa{% else %}Vencida{% endif %}
+    </span>
+  </div>
+  {% if ultimo_polling %}
+    <div class="fila">
+      <span class="texto-suave">Último polling</span>
+      <span>{{ ultimo_polling|date:"d/m/Y H:i" }}</span>
+    </div>
+  {% endif %}
+  {% if not sesion_activa %}
+    <a class="btn btn-primario btn-ancho" href="{% url 'siped:movel_login' %}?renovar=1">
+      Volver a ingresar
+    </a>
+  {% endif %}
+</section>
+
+<section class="tarjeta"
+         id="push-config"
+         data-vapid-public-key="{{ vapid_public_key }}"
+         data-suscripciones="{{ suscripciones_push }}">
+  <h2>Notificaciones</h2>
+
+  {% if push_configurado %}
+    <p class="texto-suave pequeno" id="push-estado" role="status" aria-live="polite">
+      Consultando el estado del dispositivo…
+    </p>
+    <label class="interruptor" for="push-toggle">
+      <input type="checkbox" id="push-toggle" role="switch" aria-describedby="push-estado">
+      <span class="interruptor-pista" aria-hidden="true">
+        <span class="interruptor-bola"></span>
+      </span>
+      <span class="interruptor-texto">En este dispositivo</span>
+    </label>
+    <button type="button"
+            class="btn btn-secundario btn-ancho"
+            id="push-probar"
+            {% if not suscripciones_push %}disabled{% endif %}>
+      Enviar notificación de prueba
+    </button>
+    <p class="texto-suave pequeno">
+      Se envía un resumen por ciclo de polling, no una notificación por
+      expediente.
+    </p>
+  {% else %}
+    <p class="texto-suave pequeno">
+      Faltan configurar las claves VAPID en el servidor. Las notificaciones
+      push no están disponibles.
+    </p>
+  {% endif %}
+</section>
+
+<section class="tarjeta">
+  <h2>Datos de la app</h2>
+  <div class="fila">
+    <span class="texto-suave">Expedientes</span>
+    <strong>{{ total_maestro }}</strong>
+  </div>
+  <div class="fila">
+    <span class="texto-suave">PDFs descargados</span>
+    <strong>{{ lista_pdf|length }}</strong>
+  </div>
+  <p class="texto-suave pequeno">
+    La app no guarda expedientes, contraseñas ni cookies de la intranet en el
+    dispositivo.
+  </p>
+</section>
+
+<section class="tarjeta">
+  <h2>Funciones de escritorio</h2>
+  <p class="texto-suave pequeno">
+    La sincronización individual, la búsqueda avanzada y las descargas de
+    reportes siguen disponibles desde la versión de escritorio.
+  </p>
+</section>
+
+<form method="post" action="{% url 'siped:movel_logout' %}"
+      data-confirmar="¿Cerrar sesión en este dispositivo?">
+  {% csrf_token %}
+  <button type="submit" class="btn btn-peligro btn-ancho">Cerrar sesión</button>
+</form>
+{% endblock %}

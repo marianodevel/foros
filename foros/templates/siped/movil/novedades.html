@@ -1,0 +1,72 @@
+{% extends "siped/movil/base.html" %}
+{% block titulo %}Novedades{% endblock %}
+
+{% block movil_content %}
+<section class="tarjeta">
+  <div class="tarjeta-encabezado">
+    <div>
+      <h2>Cambios detectados</h2>
+      <p class="texto-suave pequeno">
+        {% if total_novedades %}
+          Tenés {{ total_novedades }}
+          novedad{{ total_novedades|pluralize:"es" }} sin ver.
+        {% else %}
+          Estás al día.
+          {% if ultimo_polling %}
+            Último control: {{ ultimo_polling|date:"d/m/Y H:i" }}.
+          {% endif %}
+        {% endif %}
+      </p>
+    </div>
+    {% if total_novedades %}
+      <form method="post" action="{% url 'siped:movel_marcar_novedades' %}">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-secundario btn-pequeno">
+          Marcar vistas
+        </button>
+      </form>
+    {% endif %}
+  </div>
+</section>
+
+{% if grupos_novedades %}
+  {% for grupo in grupos_novedades %}
+    <section class="grupo-novedades">
+      <h2 class="grupo-titulo">{{ grupo.etiqueta }}</h2>
+      <ul class="lista-novedades tarjeta">
+        {% for novedad in grupo.novedades %}
+          <li class="{% if not novedad.vista %}nueva{% endif %}">
+            <div class="novedad-titulo">
+              <span>{{ novedad.expediente.numero_expediente }}</span>
+              {% if not novedad.vista %}
+                <span class="punto" aria-hidden="true"></span>
+                <span class="solo-lectores">sin ver</span>
+              {% endif %}
+            </div>
+            <div class="texto-suave pequeno">
+              {{ novedad.get_tipo_display }} ·
+              {{ novedad.detectada_en|date:"H:i" }}
+            </div>
+            <div class="pequeno">{{ novedad.detalle|default:"Sin detalle" }}</div>
+            <div class="texto-suave pequeno">
+              {{ novedad.expediente.caratula|default:"" }}
+            </div>
+            <div class="novedad-acciones">
+              <a class="enlace"
+                 href="{% url 'siped:movel_dashboard' %}?buscar={{ novedad.expediente.numero_expediente|urlencode }}">
+                Ver expediente
+                <svg class="icono icono-pequeno" aria-hidden="true"><use href="#icono-flecha"></use></svg>
+              </a>
+            </div>
+          </li>
+        {% endfor %}
+      </ul>
+    </section>
+  {% endfor %}
+{% else %}
+  <div class="vacio">
+    <svg class="vacio-icono" aria-hidden="true"><use href="#icono-campana"></use></svg>
+    <p>El polling todavía no detectó cambios en tus expedientes.</p>
+  </div>
+{% endif %}
+{% endblock %}

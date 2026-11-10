@@ -37,6 +37,7 @@ dependencies = [
   "psycopg[c]==3.3.4",
   "PyPDF2>=3.0.1",
   "pypdf>=4.0.0",
+  "pywebpush==2.5.0",
   "python-slugify==8.0.4",
   "redis==7.4.0",
   "requests>=2.31.0",

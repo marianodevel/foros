@@ -1,0 +1,43 @@
+{% extends "siped/movil/base.html" %}
+{% block titulo %}Sincronizar{% endblock %}
+
+{% block movil_content %}
+<section class="tarjeta">
+  <div class="tarjeta-encabezado">
+    <div>
+      <h2>Estado general</h2>
+      <p class="texto-suave pequeno">
+        Las fases se ejecutan en segundo plano.
+      </p>
+    </div>
+    <span class="chip {% if sesion_activa %}chip-ok{% else %}chip-error{% endif %}">
+      {% if sesion_activa %}Sesión activa{% else %}Sesión vencida{% endif %}
+    </span>
+  </div>
+  <div class="fila">
+    <span class="texto-suave">Último polling</span>
+    <span>
+      {% if ultimo_polling %}
+        {{ ultimo_polling|date:"d/m/Y H:i" }}
+      {% else %}
+        Sin datos
+      {% endif %}
+    </span>
+  </div>
+  {% if not sesion_activa %}
+    <a class="btn btn-primario btn-ancho" href="{% url 'siped:movel_login' %}?renovar=1">
+      Renovar sesión
+    </a>
+  {% endif %}
+</section>
+
+<div id="fases-movil" class="lista-fases">
+  {% for fase in fases_movil %}
+    {% include "siped/movil/_fase.html" with clave=fase.clave titulo=fase.titulo descripcion=fase.descripcion estado=fase.estado %}
+  {% endfor %}
+</div>
+
+<p class="texto-suave pequeno centrado">
+  Podés volver a esta pantalla para consultar el estado de cada fase.
+</p>
+{% endblock %}

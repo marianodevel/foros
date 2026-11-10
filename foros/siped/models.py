@@ -201,3 +201,24 @@ class ReporteBusqueda(models.Model):
 
     def __str__(self) -> str:
         return f"Búsqueda de {self.usuario_asignado} ({self.fecha_generacion})"
+
+
+class SuscripcionPush(models.Model):
+    """Suscripción a notificaciones push para la PWA SIPED."""
+    usuario = models.CharField(max_length=50, db_index=True)
+    endpoint = models.CharField(max_length=500, unique=True)
+    p256dh = models.CharField(max_length=500)
+    auth = models.CharField(max_length=100)
+    user_agent = models.TextField(blank=True)
+    activa = models.BooleanField(default=True)
+    fecha_creacion = models.DateTimeField(auto_now_add=True)
+    ultimo_envio = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "suscripciones_push"
+        ordering = ["-fecha_creacion"]
+        verbose_name = "suscripción push"
+        verbose_name_plural = "suscripciones push"
+
+    def __str__(self) -> str:
+        return f"Push para {self.usuario} ({self.endpoint[:30]}…)"

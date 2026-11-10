@@ -1,0 +1,71 @@
+{% with estado_fase=estado.estado %}
+<article class="tarjeta fase"
+         id="fase-{{ clave }}"
+         hx-get="{% url 'siped:movel_fragmento_fase' clave %}"
+         {% if estado_fase == "PENDING" or estado_fase == "STARTED" or estado_fase == "RETRY" %}
+         hx-trigger="every 4s"
+         {% else %}
+         hx-trigger="fase-iniciada-{{ clave }} from:body"
+         {% endif %}
+         hx-swap="outerHTML">
+  <div class="fase-cabecera">
+    <div class="fase-titulo">
+      <h2>{{ titulo }}</h2>
+      <p class="texto-suave pequeno">{{ descripcion }}</p>
+    </div>
+    <span class="chip
+      {% if estado_fase == 'SUCCESS' %}chip-ok
+      {% elif estado_fase == 'FAILURE' or estado_fase == 'REVOKED' %}chip-error
+      {% elif estado_fase == 'PENDING' or estado_fase == 'STARTED' or estado_fase == 'RETRY' %}chip-activo
+      {% endif %}">
+      {% if estado_fase == "IDLE" %}En espera
+      {% elif estado_fase == "PENDING" %}Pendiente
+      {% elif estado_fase == "STARTED" %}En curso
+      {% elif estado_fase == "RETRY" %}Reintentando
+      {% elif estado_fase == "SUCCESS" %}Completado
+      {% elif estado_fase == "FAILURE" %}Error
+      {% elif estado_fase == "REVOKED" %}Cancelado
+      {% else %}{{ estado_fase }}{% endif %}
+    </span>
+  </div>
+
+  {% if estado_fase == "PENDING" or estado_fase == "STARTED" or estado_fase == "RETRY" %}
+    <div class="progreso" role="status" aria-live="polite">
+      <span class="progreso-barra" aria-hidden="true"></span>
+      <span>En curso…</span>
+    </div>
+  {% elif estado_fase == "FAILURE" or estado_fase == "REVOKED" %}
+    <p class="texto-suave pequeno">La fase no pudo completarse.</p>
+    <details class="detalle-error">
+      <summary>Ver detalle</summary>
+      <pre>{{ estado.resultado|default:"Sin detalle" }}</pre>
+    </details>
+    <button type="button"
+            class="btn btn-primario btn-ancho"
+            hx-post="{% url 'siped:movel_iniciar_fase' clave %}"
+            hx-target="#flash-messages"
+            hx-swap="innerHTML"
+            hx-disabled-elt="this"
+            hx-on::after-request="if (event.detail.successful) { htmx.trigger(document.body, 'fase-iniciada-{{ clave }}'); }">
+      Reintentar {{ titulo|lower }}
+    </button>
+  {% else %}
+    <p class="texto-suave pequeno">
+      {% if estado_fase == "SUCCESS" %}
+        {{ estado.resultado|default:"Completado" }}
+      {% else %}
+        {{ estado.resultado|default:"En espera" }}
+      {% endif %}
+    </p>
+    <button type="button"
+            class="btn btn-primario btn-ancho"
+            hx-post="{% url 'siped:movel_iniciar_fase' clave %}"
+            hx-target="#flash-messages"
+            hx-swap="innerHTML"
+            hx-disabled-elt="this"
+            hx-on::after-request="if (event.detail.successful) { htmx.trigger(document.body, 'fase-iniciada-{{ clave }}'); }">
+      Ejecutar {{ titulo|lower }}
+    </button>
+  {% endif %}
+</article>
+{% endwith %}

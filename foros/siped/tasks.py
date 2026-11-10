@@ -16,6 +16,7 @@ from .fases.polling_cambios import (
     encolar_polling_cambios,
     ejecutar_polling_usuario,
 )
+from .push import enviar_resumen_push
 
 logger = get_task_logger(__name__)
 
@@ -78,3 +79,17 @@ def encolar_polling_cambios_task() -> int:
 def polling_cambios_usuario_task(self, username_intranet: str) -> str:
     """Consulta la lista maestra de un usuario y refresca sus novedades."""
     return ejecutar_polling_usuario(username_intranet)
+
+
+@shared_task(
+    name="siped.enviar_push_resumen",
+    soft_time_limit=60,
+    time_limit=90,
+)
+def enviar_push_resumen_task(
+    usuario: str,
+    expedientes: int,
+    movimientos: int,
+) -> dict:
+    """Envía el resumen de novedades a los dispositivos del usuario."""
+    return enviar_resumen_push(usuario, expedientes, movimientos)

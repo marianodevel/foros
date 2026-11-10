@@ -24,6 +24,7 @@ from ..exceptions import SolicitudIncompleta
 from ..fechas import formatear_fecha_intranet
 from ..models import NovedadSIPED
 from ..models import SesionSIPED
+from ..models import SuscripcionPush
 
 logger = logging.getLogger(__name__)
 
@@ -243,6 +244,28 @@ def _procesar_novedades(session, username: str) -> tuple[int, int]:
     return expedientes_procesados, movimientos_nuevos
 
 
+def _encolar_push_resumen(
+    username: str,
+    expedientes: int,
+    movimientos: int,
+) -> None:
+    """Encola un único resumen por ciclo para no saturar de avisos."""
+    if not (expedientes or movimientos):
+        return
+    if not SuscripcionPush.objects.filter(
+        usuario=username, activa=True
+    ).exists():
+        return
+    try:
+        current_app.send_task(
+            "siped.enviar_push_resumen",
+            args=[username, expedientes, movimientos],
+        )
+    except Exception:
+        # Las notificaciones nunca deben hacer fallar el polling.
+        logger.exception("No se pudo encolar el push de %s", username)
+
+
 def _ejecutar_polling(sesion: SesionSIPED) -> str:
     username = sesion.username_intranet
 
@@ -263,6 +286,7 @@ def _ejecutar_polling(sesion: SesionSIPED) -> str:
 
         procesados, movimientos = _procesar_novedades(session, username)
         _registrar_exito(sesion, session)
+        _encolar_push_resumen(username, novedades, movimientos)
 
         return (
             f"Polling completado: {len(cambios['nuevos'])} expedientes nuevos, "

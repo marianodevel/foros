@@ -1,0 +1,77 @@
+{% extends "siped/movil/base.html" %}
+{% block titulo %}Expedientes{% endblock %}
+
+{% block movil_content %}
+{% if expedientes %}
+  <div class="buscador">
+    <div class="buscador-campo">
+      <svg class="buscador-icono" aria-hidden="true"><use href="#icono-buscar"></use></svg>
+      <label class="solo-lectores" for="buscar-expediente">
+        Buscar expedientes
+      </label>
+      <input type="search"
+             id="buscar-expediente"
+             value="{{ busqueda_inicial }}"
+             placeholder="Número, carátula o dependencia"
+             autocomplete="off"
+             autocapitalize="none"
+             spellcheck="false">
+      <button type="button"
+              class="buscador-limpiar"
+              id="limpiar-busqueda"
+              aria-label="Limpiar búsqueda"
+              {% if not busqueda_inicial %}hidden{% endif %}>
+        <svg class="icono" aria-hidden="true"><use href="#icono-cerrar"></use></svg>
+      </button>
+    </div>
+    <p class="resultado-conteo" id="conteo-expedientes" role="status" aria-live="polite">
+      {{ expedientes|length }} expediente{{ expedientes|length|pluralize:"s" }}
+    </p>
+  </div>
+
+  <div id="lista-expedientes">
+    {% for expediente in expedientes %}
+      <article class="tarjeta expediente"
+               data-busqueda="{{ expediente.numero_expediente }} {{ expediente.caratula }} {{ expediente.dependencia }} {{ expediente.estado }} {{ expediente.secretaria }} {{ expediente.localidad }}">
+        <div class="expediente-cabecera">
+          <strong>{{ expediente.numero_expediente }}</strong>
+          {% if expediente.estado %}
+            <span class="chip">{{ expediente.estado }}</span>
+          {% endif %}
+        </div>
+        <p class="expediente-caratula">{{ expediente.caratula|default:"Sin carátula" }}</p>
+        <div class="expediente-meta texto-suave pequeno">
+          <span>{{ expediente.dependencia|default:"Sin dependencia" }}</span>
+          <span>{{ expediente.cantidad_movimientos }} mov.</span>
+        </div>
+        <div class="texto-suave pequeno">
+          Último movimiento:
+          {{ expediente.fecha_ult_mov|date:"d/m/Y"|default:"sin fecha" }}
+        </div>
+      </article>
+    {% endfor %}
+  </div>
+
+  <div class="vacio" id="sin-resultados" hidden>
+    <svg class="vacio-icono" aria-hidden="true"><use href="#icono-buscar"></use></svg>
+    <p>
+      No encontramos expedientes para
+      «<span id="termino-buscado"></span>».
+    </p>
+    <button type="button" class="btn btn-secundario" id="limpiar-desde-vacio">
+      Limpiar búsqueda
+    </button>
+  </div>
+{% else %}
+  <div class="vacio">
+    <svg class="vacio-icono" aria-hidden="true"><use href="#icono-carpeta"></use></svg>
+    <p>
+      Todavía no hay expedientes sincronizados. Ejecutá la fase de expedientes
+      para empezar.
+    </p>
+    <a class="btn btn-primario" href="{% url 'siped:movel_sincronizar' %}">
+      Sincronizar expedientes
+    </a>
+  </div>
+{% endif %}
+{% endblock %}

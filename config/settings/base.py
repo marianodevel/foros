@@ -150,6 +150,14 @@ MIDDLEWARE = [
     "allauth.account.middleware.AccountMiddleware",
 ]
 
+# WEB PUSH (PWA SIPED)
+# ------------------------------------------------------------------------------
+# Clave privada VAPID en DER codificada como base64url, tal como la acepta
+# pywebpush (ver py_vapid.Vapid.from_string).
+VAPID_PRIVATE_KEY = env("VAPID_PRIVATE_KEY", default="")
+VAPID_PUBLIC_KEY = env("VAPID_PUBLIC_KEY", default="")
+VAPID_SUBJECT = env("VAPID_SUBJECT", default="mailto:admin@foros.local")
+
 # STATIC
 # ------------------------------------------------------------------------------
 # https://docs.djangoproject.com/en/dev/ref/settings/#static-root

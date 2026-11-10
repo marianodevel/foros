@@ -39,4 +39,46 @@ urlpatterns = [
     
     # Debug
     path("debug/<path:nro_expediente>/", views.debug_expediente, name="debug_expediente"),
+
+    # PWA móvil
+    path("m/login/", views.movel_login, name="movel_login"),
+    path("m/logout/", views.movel_logout, name="movel_logout"),
+    path("m/", views.movel_index, name="movel_index"),
+    path("m/expedientes/", views.movel_dashboard, name="movel_dashboard"),
+    path("m/novedades/", views.movel_novedades, name="movel_novedades"),
+    path(
+        "m/novedades/marcar_vistas/",
+        views.movel_marcar_novedades,
+        name="movel_marcar_novedades",
+    ),
+    path("m/sincronizar/", views.movel_sincronizar, name="movel_sincronizar"),
+    path(
+        "m/fragmento/estado/<str:nombre_fase>/",
+        views.movel_fragmento_fase,
+        name="movel_fragmento_fase",
+    ),
+    path(
+        "m/iniciar/<str:nombre_fase>/",
+        views.iniciar_fase,
+        name="movel_iniciar_fase",
+    ),
+    path("m/perfil/", views.movel_perfil, name="movel_perfil"),
+    path("m/sesion/", views.movel_sesion, name="movel_sesion"),
+    path(
+        "m/push/suscribir/",
+        views.movel_push_suscribir,
+        name="movel_push_suscribir",
+    ),
+    path(
+        "m/push/desuscribir/",
+        views.movel_push_desuscribir,
+        name="movel_push_desuscribir",
+    ),
+    path("m/push/test/", views.movel_push_test, name="movel_push_test"),
+    path(
+        "manifest.webmanifest",
+        views.movel_manifest,
+        name="movel_manifest",
+    ),
+    path("sw.js", views.movel_service_worker, name="movel_service_worker"),
 ]

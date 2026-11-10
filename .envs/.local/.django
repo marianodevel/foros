@@ -6,6 +6,12 @@ IPYTHONDIR=/app/.ipython
 # ------------------------------------------------------------------------------
 REDIS_URL=redis://redis:6379/0
 
+# Web Push (VAPID) - claves de desarrollo
+# ------------------------------------------------------------------------------
+VAPID_PRIVATE_KEY=MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgT6_gsPOj6xrvp8kFpKRCbAt5wU-Gnz4sbQMmjt7l4TuhRANCAARhQaE5FAA0HrCihgt6cGsoQrKOqGTVsTneftDFSgS2NgK3xqoARBTUIJsAGSkmAAdidVfU9cu9MwFZAGmwrhhK
+VAPID_PUBLIC_KEY=BGFBoTkUADQesKKGC3pwayhCso6oZNWxOd5-0MVKBLY2ArfGqgBEFNQgmwAZKSYAB2J1V9T1y70zAVkAabCuGEo
+VAPID_SUBJECT=mailto:admin@foros.local
+
 # Celery
 # ------------------------------------------------------------------------------
 

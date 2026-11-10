@@ -3,13 +3,18 @@
 import csv
 import json
 import logging
+from datetime import timedelta
 from functools import wraps
+from pathlib import Path
 
+from django.conf import settings
 from django.contrib import messages
-from django.db.models import F
-from django.http import FileResponse, Http404, HttpResponse
+from django.contrib.staticfiles import finders
+from django.db.models import Count, F
+from django.http import FileResponse, Http404, HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
+from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from . import gestor_almacenamiento, gestor_tareas, session_manager
@@ -31,7 +36,9 @@ from .models import (
     NovedadSIPED,
     ReporteBusqueda,
     SesionSIPED,
+    SuscripcionPush,
 )
+from .push import desuscribir_push, enviar_push_test, suscribir_push
 from .tasks import (
     busqueda_avanzada_task,
     descarga_publica_task,
@@ -63,6 +70,13 @@ MAPA_TAREAS_CELERY = {
 }
 
 
+def _login_destino(request) -> str:
+    """Elige el login según la superficie desde la que llega la petición."""
+    if request.path.startswith("/siped/m/"):
+        return "siped:movel_login"
+    return "siped:login"
+
+
 def siped_login_required(view_func):
     """Decorador para restringir el acceso a usuarios sin sesión activa en SIPED."""
     @wraps(view_func)
@@ -72,7 +86,7 @@ def siped_login_required(view_func):
             or "siped_username" not in request.session
         ):
             messages.warning(request, "Por favor, inicia sesión para acceder a esta página.")
-            return redirect("siped:login")
+            return redirect(_login_destino(request))
         return view_func(request, *args, **kwargs)
     return _wrapped_view
 
@@ -130,11 +144,15 @@ def _respuesta_sesion_expirada(request):
     _limpiar_sesion_siped(request)
     messages.warning(request, SesionSIPEDExpirada.MENSAJE_POR_DEFECTO)
     response = render(request, "siped/_fragmento_mensajes.html")
-    response["HX-Redirect"] = reverse("siped:login")
+    response["HX-Redirect"] = reverse(_login_destino(request))
     return response
 
 
-def login_view(request):
+def login_view(
+    request,
+    plantilla: str = "siped/login.html",
+    destino: str = "siped:indice",
+):
     """Maneja la autenticación contra el sistema externo y establece la sesión local."""
     renovar = "renovar" in request.GET
 
@@ -143,7 +161,7 @@ def login_view(request):
     # usuario atrapado con una sesión remota vencida y sin forma de reautenticarse.
     if "siped_cookies" in request.session and not renovar:
         if _sesion_remota_valida(request):
-            return redirect("siped:indice")
+            return redirect(destino)
         _limpiar_sesion_siped(request)
         messages.warning(
             request,
@@ -169,19 +187,61 @@ def login_view(request):
                 _guardar_sesion_siped(username, cookies_dict)
                 logger.info("Login exitoso para usuario: %s", username)
                 messages.success(request, f"Bienvenido, {username}! Sesión iniciada.")
-                return redirect("siped:indice")
+                return redirect(destino)
 
             logger.warning("Login fallido para usuario: %s", username)
             messages.error(request, "Error de autenticación. Usuario o contraseña incorrectos.")
     else:
         form = LoginForm()
 
-    return render(request, "siped/login.html", {"form": form})
+    es_movil = _es_movil(plantilla)
+    if es_movil:
+        form.fields["username"].widget.attrs.update(
+            {
+                "autocomplete": "username",
+                "autocapitalize": "none",
+                "spellcheck": "false",
+            },
+        )
+        form.fields["password"].widget.attrs.update(
+            {"autocomplete": "current-password"},
+        )
+        for nombre_campo, error in (
+            ("username", "error-username"),
+            ("password", "error-password"),
+        ):
+            if form.errors.get(nombre_campo):
+                form.fields[nombre_campo].widget.attrs.update(
+                    {
+                        "aria-describedby": error,
+                        "aria-invalid": "true",
+                    },
+                )
+
+    contexto = {
+        "form": form,
+        "solo_movil": es_movil,
+        "titulo": "Acceso" if es_movil else "",
+    }
+    return render(request, plantilla, contexto)
+
+
+def movel_login(request):
+    """Formulario de acceso con la estética de la PWA."""
+    return login_view(
+        request,
+        plantilla="siped/movil/login.html",
+        destino="siped:movel_index",
+    )
+
+
+def _es_movil(plantilla: str) -> bool:
+    return plantilla.startswith("siped/movil/")
 
 
 @require_POST
 @siped_login_required
-def logout_view(request):
+def logout_view(request, destino: str = "siped:login"):
     """Elimina las credenciales de sesión del usuario actual."""
     username = request.session.get("siped_username")
     _limpiar_sesion_siped(request)
@@ -193,7 +253,13 @@ def logout_view(request):
     request.session.cycle_key()
     logger.info("Sesión cerrada para usuario: %s", username)
     messages.success(request, "Sesión cerrada exitosamente.")
-    return redirect("siped:login")
+    return redirect(destino)
+
+
+@require_POST
+def movel_logout(request):
+    """Cierre de sesión desde la PWA."""
+    return logout_view(request, destino="siped:movel_login")
 
 
 @siped_login_required
@@ -222,11 +288,11 @@ def indice(request):
     existe_maestro = total_maestro > 0
 
     existe_movimientos = Movimiento.objects.filter(
-        expediente__usuario_asignado=usuario, expediente__origen="PRIVADO"
+        expediente__usuario_asignado=usuario, expediente__origen="PRIVADO",
     ).exists()
 
     existe_publico_csv = Expediente.objects.filter(
-        usuario_asignado=usuario, origen="PUBLICO"
+        usuario_asignado=usuario, origen="PUBLICO",
     ).exists()
     expedientes_disponibles = Expediente.objects.filter(usuario_asignado=usuario).values()
 
@@ -242,7 +308,7 @@ def indice(request):
     for clave_plantilla, nombre_real in MAPA_FASES.items():
         id_tarea = gestor_tareas.obtener_id_tarea(usuario, nombre_real)
         estados_tareas[clave_plantilla] = gestor_tareas.obtener_estado_tarea(
-            id_tarea, usuario, nombre_real
+            id_tarea, usuario, nombre_real,
         )
 
     form_busqueda = BusquedaAvanzadaForm()
@@ -266,7 +332,7 @@ def indice(request):
         "form_publica":            form_publica,
         # R8: catálogo de dependencias por localidad para el selector dinámico
         "dependencias_json": json.dumps(
-            {str(k): v for k, v in DEPENDENCIAS_POR_LOCALIDAD.items()}
+            {str(k): v for k, v in DEPENDENCIAS_POR_LOCALIDAD.items()},
         ),
     }
     
@@ -279,7 +345,7 @@ def marcar_novedades_vistas(request):
     """Marca como vistas todas las novedades del polling automático."""
     usuario = request.session.get("siped_username")
     NovedadSIPED.objects.filter(usuario_asignado=usuario, vista=False).update(
-        vista=True
+        vista=True,
     )
     messages.success(request, "Novedades marcadas como vistas.")
     return redirect("siped:indice")
@@ -301,7 +367,7 @@ def iniciar_fase(request, nombre_fase):
     usuario = request.session["siped_username"]
     
     estado_actual = gestor_tareas.obtener_estado_tarea(
-        gestor_tareas.obtener_id_tarea(usuario, nombre_real), usuario, nombre_real
+        gestor_tareas.obtener_id_tarea(usuario, nombre_real), usuario, nombre_real,
     )
 
     if estado_actual["estado"] in ["PENDING", "STARTED", "RETRY"]:
@@ -309,7 +375,7 @@ def iniciar_fase(request, nombre_fase):
         return render(request, "siped/_fragmento_mensajes.html")
 
     tarea = tarea_celery.delay(
-        cookies=request.session["siped_cookies"], username=usuario
+        cookies=request.session["siped_cookies"], username=usuario,
     )
     gestor_tareas.registrar_tarea_iniciada(usuario, nombre_real, tarea.id)
 
@@ -336,7 +402,7 @@ def iniciar_descarga_unico(request):
         return render(request, "siped/_fragmento_mensajes.html")
 
     estado_actual = gestor_tareas.obtener_estado_tarea(
-        gestor_tareas.obtener_id_tarea(usuario, nombre_real), usuario, nombre_real
+        gestor_tareas.obtener_id_tarea(usuario, nombre_real), usuario, nombre_real,
     )
     
     if estado_actual["estado"] in ["PENDING", "STARTED", "RETRY"]:
@@ -344,7 +410,7 @@ def iniciar_descarga_unico(request):
         return render(request, "siped/_fragmento_mensajes.html")
 
     tarea = sincronizacion_individual_task.delay(
-        cookies=request.session["siped_cookies"], nro_expediente=nro_expediente, username=usuario
+        cookies=request.session["siped_cookies"], nro_expediente=nro_expediente, username=usuario,
     )
     gestor_tareas.registrar_tarea_iniciada(usuario, nombre_real, tarea.id)
 
@@ -366,7 +432,7 @@ def iniciar_busqueda_avanzada(request):
     nombre_fase = "fase_busqueda_avanzada"
     
     estado_actual = gestor_tareas.obtener_estado_tarea(
-        gestor_tareas.obtener_id_tarea(usuario, nombre_real), usuario, nombre_real
+        gestor_tareas.obtener_id_tarea(usuario, nombre_real), usuario, nombre_real,
     )
 
     if estado_actual["estado"] in ["PENDING", "STARTED", "RETRY"]:
@@ -410,7 +476,7 @@ def iniciar_descarga_publico(request):
         return render(request, "siped/_fragmento_mensajes.html")
 
     estado_actual = gestor_tareas.obtener_estado_tarea(
-        gestor_tareas.obtener_id_tarea(usuario, nombre_real), usuario, nombre_real
+        gestor_tareas.obtener_id_tarea(usuario, nombre_real), usuario, nombre_real,
     )
     
     if estado_actual["estado"] in ["PENDING", "STARTED", "RETRY"]:
@@ -468,7 +534,7 @@ def fragmento_estado(request, nombre_fase):
     nombre_real = MAPA_FASES.get(nombre_fase, nombre_fase)
     
     estado = gestor_tareas.obtener_estado_tarea(
-        gestor_tareas.obtener_id_tarea(usuario, nombre_real), usuario, nombre_real
+        gestor_tareas.obtener_id_tarea(usuario, nombre_real), usuario, nombre_real,
     )
 
     if estado.get("sesion_expirada"):
@@ -478,7 +544,7 @@ def fragmento_estado(request, nombre_fase):
             estado.get("resultado") or SesionSIPEDExpirada.MENSAJE_POR_DEFECTO,
         )
         response = render(request, "siped/_fragmento_mensajes.html")
-        response["HX-Redirect"] = reverse("siped:login")
+        response["HX-Redirect"] = reverse(_login_destino(request))
         return response
 
     response = render(request, "siped/_fragmento_estado.html", {"id_fase": nombre_fase, "estado": estado})
@@ -513,7 +579,7 @@ def descargar_archivo(request, tipo, nombre_archivo):
     if tipo == "documentos":
         doc = DocumentoAdjunto.objects.filter(
             expediente__usuario_asignado=usuario, 
-            nombre_original=nombre_archivo
+            nombre_original=nombre_archivo,
         ).first()
         if doc and doc.archivo:
             return FileResponse(doc.archivo.open(), as_attachment=True, filename=nombre_archivo)
@@ -521,7 +587,7 @@ def descargar_archivo(request, tipo, nombre_archivo):
     elif tipo == "maestro" and nombre_archivo.startswith("busqueda_"):
         reporte = ReporteBusqueda.objects.filter(
             usuario_asignado=usuario, 
-            archivo_csv__endswith=nombre_archivo
+            archivo_csv__endswith=nombre_archivo,
         ).first()
         if reporte and reporte.archivo_csv:
             return FileResponse(reporte.archivo_csv.open(), as_attachment=True, filename=nombre_archivo)
@@ -546,13 +612,13 @@ def validar_descarga_expediente(request):
     doc = DocumentoAdjunto.objects.filter(
         expediente__usuario_asignado=usuario,
         expediente__numero_expediente=nro_expediente,
-        es_consolidado=True
+        es_consolidado=True,
     ).first()
 
     if not doc or not doc.archivo:
         messages.warning(
             request, 
-            f"No hay documento consolidado para el expediente {nro_expediente}. Ejecute la sincronización primero."
+            f"No hay documento consolidado para el expediente {nro_expediente}. Ejecute la sincronización primero.",
         )
         return render(request, "siped/_fragmento_mensajes.html")
 
@@ -571,7 +637,7 @@ def descargar_por_expediente(request, nro_expediente):
     doc = DocumentoAdjunto.objects.filter(
         expediente__usuario_asignado=usuario,
         expediente__numero_expediente=nro_expediente,
-        es_consolidado=True
+        es_consolidado=True,
     ).first()
     
     if not doc or not doc.archivo:
@@ -592,7 +658,7 @@ def exportar_expedientes_csv(request):
     writer = csv.writer(response)
     writer.writerow([
         'Numero Expediente', 'Caratula', 'Dependencia', 
-        'Secretaria', 'Estado', 'Ultimo Movimiento', 'Localidad'
+        'Secretaria', 'Estado', 'Ultimo Movimiento', 'Localidad',
     ])
 
     for exp in expedientes:
@@ -603,7 +669,7 @@ def exportar_expedientes_csv(request):
             exp.secretaria,
             exp.estado,
             formatear_fecha_intranet(exp.fecha_ult_mov),
-            exp.localidad
+            exp.localidad,
         ])
 
     return response
@@ -755,7 +821,7 @@ def dashboard(request):
     })
 
 
-from django.conf import settings
+
 
 @siped_login_required
 def debug_expediente(request, nro_expediente):
@@ -800,3 +866,290 @@ def debug_expediente(request, nro_expediente):
         
     except Expediente.DoesNotExist:
         return HttpResponse(f"Expediente '{nro_expediente}' no encontrado en la base de datos para el usuario '{usuario}'.")
+
+# ---- PWA móvil (Fase 1 y 2) ----
+
+ETIQUETAS_FASES_MOVIL = {
+    "fase_1": "Expedientes",
+    "fase_2": "Movimientos",
+    "fase_3": "Documentos",
+}
+
+DESCRIPCIONES_FASES_MOVIL = {
+    "fase_1": "Actualiza la lista de expedientes privados.",
+    "fase_2": "Trae los movimientos nuevos de tus expedientes.",
+    "fase_3": "Descarga los PDFs de los movimientos detectados.",
+}
+
+
+def movel_login_required(view_func):
+    """Exige sesión local y confirma contra la intranet que siga vigente."""
+    @wraps(view_func)
+    def _wrapped_view(request, *args, **kwargs):
+        if (
+            "siped_cookies" not in request.session
+            or "siped_username" not in request.session
+        ):
+            messages.warning(request, "Por favor, inicia sesión para acceder.")
+            return redirect("siped:movel_login")
+        if not _sesion_remota_valida(request):
+            _limpiar_sesion_siped(request)
+            messages.warning(request, SesionSIPEDExpirada.MENSAJE_POR_DEFECTO)
+            return redirect("siped:movel_login")
+        return view_func(request, *args, **kwargs)
+
+    return _wrapped_view
+
+
+def _contexto_movil(request) -> dict:
+    """Datos compartidos por las pestañas de la PWA."""
+    usuario = request.session["siped_username"]
+
+    estados_tareas = {}
+    for clave_plantilla, nombre_real in MAPA_FASES.items():
+        id_tarea = gestor_tareas.obtener_id_tarea(usuario, nombre_real)
+        estados_tareas[clave_plantilla] = gestor_tareas.obtener_estado_tarea(
+            id_tarea, usuario, nombre_real,
+        )
+
+    sesion = SesionSIPED.objects.filter(username_intranet=usuario).first()
+
+    return {
+        "usuario": usuario,
+        "lista_pdf": gestor_almacenamiento.listar_documentos_pdf(usuario),
+        "total_maestro": Expediente.objects.filter(
+            usuario_asignado=usuario, origen="PRIVADO",
+        ).count(),
+        "existe_movimientos": Movimiento.objects.filter(
+            expediente__usuario_asignado=usuario, expediente__origen="PRIVADO",
+        ).exists(),
+        "total_novedades": NovedadSIPED.objects.filter(
+            usuario_asignado=usuario, procesada=True, vista=False,
+        ).count(),
+        "sesion_siped": sesion,
+        "sesion_activa": bool(
+            sesion and sesion.estado == SesionSIPED.Estado.ACTIVA,
+        ),
+        "ultimo_polling": sesion.ultimo_polling if sesion else None,
+        "estados_tareas": estados_tareas,
+        "fases_movil": [
+            {
+                "clave": clave,
+                "titulo": titulo,
+                "descripcion": DESCRIPCIONES_FASES_MOVIL.get(clave, ""),
+                "estado": estados_tareas.get(clave),
+            }
+            for clave, titulo in ETIQUETAS_FASES_MOVIL.items()
+        ],
+        "solo_movil": True,
+    }
+
+
+@movel_login_required
+def movel_index(request):
+    """Resumen de la PWA: contadores y últimas novedades."""
+    ctx = _contexto_movil(request)
+    ctx.update(
+        {
+            "titulo": "Inicio",
+            "novedades": NovedadSIPED.objects.filter(
+                usuario_asignado=ctx["usuario"], procesada=True,
+            )
+            .select_related("expediente")
+            .order_by("-detectada_en")[:5],
+        },
+    )
+    return render(request, "siped/movil/index.html", ctx)
+
+
+@movel_login_required
+def movel_dashboard(request):
+    """Listado de expedientes del usuario para móvil."""
+    ctx = _contexto_movil(request)
+    ctx.update(
+        {
+            "titulo": "Expedientes",
+            "busqueda_inicial": request.GET.get("buscar", "").strip(),
+            "expedientes": (
+                Expediente.objects.filter(
+                    usuario_asignado=ctx["usuario"], origen="PRIVADO",
+                )
+                .annotate(cantidad_movimientos=Count("movimientos"))
+                .order_by(F("fecha_ult_mov").desc(nulls_last=True), "-id")
+            ),
+        },
+    )
+    return render(request, "siped/movil/expedientes.html", ctx)
+
+
+def _agrupar_novedades_por_fecha(novedades):
+    """Agrupa novedades por día con etiquetas legibles para la PWA."""
+    hoy = timezone.localdate()
+    ayer = hoy - timedelta(days=1)
+    grupos = []
+
+    for novedad in novedades:
+        fecha = timezone.localdate(novedad.detectada_en)
+        if not grupos or grupos[-1]["fecha"] != fecha:
+            if fecha == hoy:
+                etiqueta = "Hoy"
+            elif fecha == ayer:
+                etiqueta = "Ayer"
+            else:
+                etiqueta = fecha.strftime("%d/%m/%Y")
+            grupos.append(
+                {"fecha": fecha, "etiqueta": etiqueta, "novedades": []},
+            )
+        grupos[-1]["novedades"].append(novedad)
+
+    return grupos
+
+
+@movel_login_required
+def movel_novedades(request):
+    """Novedades detectadas por el polling automático."""
+    ctx = _contexto_movil(request)
+    novedades = list(
+        NovedadSIPED.objects.filter(
+            usuario_asignado=ctx["usuario"], procesada=True,
+        )
+        .select_related("expediente")
+        .order_by("-detectada_en"),
+    )
+    ctx.update(
+        {
+            "titulo": "Novedades",
+            "novedades": novedades,
+            "grupos_novedades": _agrupar_novedades_por_fecha(novedades),
+        },
+    )
+    return render(request, "siped/movil/novedades.html", ctx)
+
+
+@require_POST
+@movel_login_required
+def movel_marcar_novedades(request):
+    """Marca las novedades como vistas y vuelve a la pestaña móvil."""
+    NovedadSIPED.objects.filter(
+        usuario_asignado=request.session["siped_username"], vista=False,
+    ).update(vista=True)
+    messages.success(request, "Novedades marcadas como vistas.")
+    return redirect("siped:movel_novedades")
+
+
+@movel_login_required
+def movel_sincronizar(request):
+    """Estado de las fases y accesos para ejecutarlas."""
+    ctx = _contexto_movil(request)
+    ctx["titulo"] = "Sincronizar"
+    return render(request, "siped/movil/sincronizar.html", ctx)
+
+
+@siped_login_required
+def movel_fragmento_fase(request, nombre_fase):
+    """Estado de una fase para el auto-refresco de la PWA."""
+    if nombre_fase not in ETIQUETAS_FASES_MOVIL:
+        mensaje = f"Fase móvil desconocida: {nombre_fase}"
+        raise Http404(mensaje)
+
+    nombre_real = MAPA_FASES[nombre_fase]
+    usuario = request.session["siped_username"]
+    estado = gestor_tareas.obtener_estado_tarea(
+        gestor_tareas.obtener_id_tarea(usuario, nombre_real),
+        usuario,
+        nombre_real,
+    )
+    contexto = {
+        "clave": nombre_fase,
+        "titulo": ETIQUETAS_FASES_MOVIL[nombre_fase],
+        "descripcion": DESCRIPCIONES_FASES_MOVIL.get(nombre_fase, ""),
+        "estado": estado,
+    }
+    response = render(request, "siped/movil/_fase.html", contexto)
+
+    if estado.get("sesion_expirada"):
+        _limpiar_sesion_siped(request)
+        response["HX-Redirect"] = reverse("siped:movel_login")
+    elif estado.get("recargar"):
+        response["HX-Refresh"] = "true"
+
+    return response
+
+
+@movel_login_required
+def movel_perfil(request):
+    """Perfil: sesión de la intranet y notificaciones push."""
+    ctx = _contexto_movil(request)
+    ctx.update(
+        {
+            "titulo": "Perfil",
+            "sesion": ctx["sesion_siped"],
+            "suscripciones_push": SuscripcionPush.objects.filter(
+                usuario=ctx["usuario"], activa=True,
+            ).count(),
+            "vapid_public_key": settings.VAPID_PUBLIC_KEY,
+            "push_configurado": bool(
+                settings.VAPID_PRIVATE_KEY and settings.VAPID_PUBLIC_KEY,
+            ),
+        },
+    )
+    return render(request, "siped/movil/perfil.html", ctx)
+
+
+@siped_login_required
+def movel_sesion(request):
+    """Estado rápido de la sesión de la intranet."""
+    usuario = request.session.get("siped_username")
+    ses = SesionSIPED.objects.filter(username_intranet=usuario).first()
+    return JsonResponse(
+        {
+            "usuario": usuario,
+            "sesion_activa": bool(
+                ses and ses.estado == SesionSIPED.Estado.ACTIVA,
+            ),
+            "ultimo_polling": str(ses.ultimo_polling)
+            if ses and ses.ultimo_polling
+            else None,
+        },
+    )
+
+
+def movel_push_suscribir(request):
+    """Registra la suscripción push de este dispositivo."""
+    return suscribir_push(request)
+
+
+def movel_push_desuscribir(request):
+    """Elimina la suscripción push de este dispositivo."""
+    return desuscribir_push(request)
+
+
+def movel_push_test(request):
+    """Envía una notificación de prueba a los dispositivos del usuario."""
+    return enviar_push_test(request)
+
+
+def _archivo_estatico(ruta: str, content_type: str):
+    encontrado = finders.find(ruta)
+    if not encontrado:
+        raise Http404
+    return FileResponse(Path(encontrado).open("rb"), content_type=content_type)
+
+
+def movel_manifest(request):
+    """Sirve el manifest con su MIME correcto."""
+    return _archivo_estatico(
+        "siped/movil/manifest.webmanifest",
+        "application/manifest+json",
+    )
+
+
+def movel_service_worker(request):
+    """Sirve el SW desde /siped/ para que pueda controlar toda la app."""
+    response = _archivo_estatico(
+        "siped/movil/js/sw.js",
+        "text/javascript; charset=utf-8",
+    )
+    response["Service-Worker-Allowed"] = "/siped/"
+    response["Cache-Control"] = "no-cache"
+    return response

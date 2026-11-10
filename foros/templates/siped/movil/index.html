@@ -1,0 +1,93 @@
+{% extends "siped/movil/base.html" %}
+{% load static %}
+{% block titulo %}Inicio{% endblock %}
+
+{% block movil_content %}
+<section class="saludo">
+  <p class="texto-suave">Hola,</p>
+  <p class="saludo-nombre">{{ usuario }}</p>
+</section>
+
+<section class="resumen">
+  <a class="tarjeta tarjeta-accion" href="{% url 'siped:movel_dashboard' %}">
+    <div class="resumen-texto">
+      <span class="resumen-numero">{{ total_maestro }}</span>
+      <span class="resumen-etiqueta">Expedientes</span>
+    </div>
+    <span class="icono-circulo" aria-hidden="true">
+      <svg class="icono"><use href="#icono-carpeta"></use></svg>
+    </span>
+    <p class="texto-suave pequeno resumen-pie">
+      {% if ultimo_polling %}
+        Última actualización: {{ ultimo_polling|date:"d/m H:i" }}
+      {% else %}
+        Todavía no sincronizaste
+      {% endif %}
+    </p>
+  </a>
+
+  <a class="tarjeta tarjeta-accion {% if total_novedades %}destacada{% endif %}"
+     href="{% url 'siped:movel_novedades' %}">
+    <div class="resumen-texto">
+      <span class="resumen-numero">{{ total_novedades }}</span>
+      <span class="resumen-etiqueta">Sin ver</span>
+    </div>
+    <span class="icono-circulo" aria-hidden="true">
+      <svg class="icono"><use href="#icono-campana"></use></svg>
+    </span>
+    <p class="texto-suave pequeno resumen-pie">
+      {% if total_novedades %}
+        Tenés novedades para revisar
+      {% else %}
+        Estás al día
+      {% endif %}
+    </p>
+  </a>
+</section>
+
+<section class="tarjeta">
+  <div class="tarjeta-encabezado">
+    <h2>Últimas novedades</h2>
+    <a href="{% url 'siped:movel_novedades' %}" class="enlace">Ver todas</a>
+  </div>
+
+  {% if novedades %}
+    <ul class="lista-novedades">
+      {% for novedad in novedades %}
+        <li class="{% if not novedad.vista %}nueva{% endif %}">
+          <div class="novedad-titulo">
+            {{ novedad.expediente.numero_expediente }}
+            {% if not novedad.vista %}
+              <span class="punto" aria-hidden="true"></span>
+              <span class="solo-lectores">sin ver</span>
+            {% endif %}
+          </div>
+          <div class="texto-suave pequeno">
+            {{ novedad.get_tipo_display }} · {{ novedad.detectada_en|date:"d/m H:i" }}
+          </div>
+          <div class="pequeno">{{ novedad.detalle|default:"Sin detalle" }}</div>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="vacio">No hay novedades por ahora.</p>
+  {% endif %}
+</section>
+
+<section class="tarjeta meta-app">
+  <div class="fila">
+    <span class="texto-suave">PDFs descargados</span>
+    <strong>{{ lista_pdf|length }}</strong>
+  </div>
+  <div class="fila">
+    <span class="texto-suave">Movimientos sincronizados</span>
+    <strong>{% if existe_movimientos %}Sí{% else %}—{% endif %}</strong>
+  </div>
+</section>
+
+<div class="acciones-rapidas">
+  <a class="btn btn-primario btn-ancho" href="{% url 'siped:movel_sincronizar' %}">
+    Sincronizar ahora
+  </a>
+</div>
+{% endblock %}
