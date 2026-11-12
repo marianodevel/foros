@@ -334,13 +334,10 @@ def indice(request):
     """Pestaña de novedades: cambios detectados por el polling automático."""
     usuario = request.session.get("siped_username")
 
-    # La sesión de Django puede sobrevivir a la cookie de la intranet. Antes de
-    # mostrar el panel, confirmamos contra el sistema judicial que sigue activa.
-    if not _sesion_remota_valida(request):
-        _limpiar_sesion_siped(request)
-        messages.warning(request, SesionSIPEDExpirada.MENSAJE_POR_DEFECTO)
-        return redirect("siped:login")
-
+    # La sesión ya fue validada al iniciar sesión (decorador siped_login_required).
+    # La vigencia continua es monitoreada por la tarea de polling cada 30 min
+    # mediante Celery Beat, que actualiza el estado en SesionSIPED.
+    # No realizamos validación remota aquí para evitar latencia de red en cada carga.
     sesion = SesionSIPED.objects.filter(username_intranet=usuario).first()
     context = {
         "tab_activa": "novedades",
@@ -357,11 +354,10 @@ def sincronizar(request):
     """Pestaña de sincronización: herramientas y estado de las tareas."""
     usuario = request.session.get("siped_username")
 
-    if not _sesion_remota_valida(request):
-        _limpiar_sesion_siped(request)
-        messages.warning(request, SesionSIPEDExpirada.MENSAJE_POR_DEFECTO)
-        return redirect("siped:login")
-
+    # La sesión ya fue validada al iniciar sesión (decorador siped_login_required).
+    # La vigencia continua es monitoreada por la tarea de polling cada 30 min
+    # mediante Celery Beat, que actualiza el estado en SesionSIPED.
+    # No realizamos validación remota aquí para evitar latencia de red en cada carga.
     lista_pdf = gestor_almacenamiento.listar_documentos_pdf(usuario)
     lista_busquedas = gestor_almacenamiento.listar_reportes_busqueda(usuario)
 

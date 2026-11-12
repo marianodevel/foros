@@ -305,16 +305,22 @@ def cliente_con_sesion_siped(client, db):
 
 class TestVistas:
     @pytest.mark.django_db
-    def test_indice_redirige_y_limpia_si_la_sesion_remota_expiro(
+    def test_indice_no_realiza_validacion_remota_en_cada_carga(
         self, cliente_con_sesion_siped
     ) -> None:
+        # La validación remota ya no se realiza en cada carga de página.
+        # La vigencia de la sesión se monitorea mediante Celery Beat cada 30 min.
+        # Antes la prueba verificaba que _sesion_remota_valida(False) provocaba redirect;
+        # ahora el índice renderiza normalmente (200) y la detección de sesión expirada
+        # la realiza la tarea de polling automático, no cada vista.
         with patch("foros.siped.views._sesion_remota_valida", return_value=False):
             respuesta = cliente_con_sesion_siped.get(reverse("siped:indice"))
 
-        assert respuesta.status_code == 302
-        assert respuesta.url == reverse("siped:login")
-        assert "siped_cookies" not in cliente_con_sesion_siped.session
-        assert "siped_username" not in cliente_con_sesion_siped.session
+        # La página carga normalmente sin validación remota en cada request
+        assert respuesta.status_code == 200
+        # Las cookies de sesión persisten; no se limpian al mostrar el índice
+        assert "siped_cookies" in cliente_con_sesion_siped.session
+        assert "siped_username" in cliente_con_sesion_siped.session
 
     def test_login_con_cookie_vencida_muestra_el_formulario(
         self, cliente_con_sesion_siped
