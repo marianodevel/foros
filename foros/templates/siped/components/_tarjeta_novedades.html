@@ -7,33 +7,72 @@
                 <span class="badge bg-warning text-dark ms-2">{{ total_novedades }} sin ver</span>
             {% endif %}
         </span>
-        {% if total_novedades %}
-        <form method="post" action="{% url 'siped:marcar_novedades_vistas' %}" class="mb-0">
-            {% csrf_token %}
-            <button type="submit" class="btn btn-sm btn-outline-dark">
-                <i class="bi bi-check2-all me-1"></i> Marcar como vistas
-            </button>
-        </form>
-        {% endif %}
+        <div class="d-flex gap-2">
+            {% if total_novedades %}
+            <form method="post" action="{% url 'siped:marcar_novedades_vistas' %}" class="mb-0">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-sm btn-outline-dark">
+                    <i class="bi bi-check2-all me-1"></i> Marcar como vistas
+                </button>
+            </form>
+            {% endif %}
+            {% if novedades %}
+            <form method="post" action="{% url 'siped:limpiar_novedades' %}" class="mb-0"
+                  onsubmit="return confirm('¿Eliminar todas las novedades procesadas?');">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-sm btn-outline-danger">
+                    <i class="bi bi-trash me-1"></i> Limpiar novedades
+                </button>
+            </form>
+            {% endif %}
+        </div>
     </div>
     <div class="card-body p-0">
         <ul class="list-group list-group-flush">
             {% for novedad in novedades %}
-            <li class="list-group-item d-flex justify-content-between align-items-start {% if not novedad.vista %}bg-warning-subtle{% endif %}">
-                <div>
-                    {% if novedad.tipo == 'EXPEDIENTE_NUEVO' %}
-                        <span class="badge bg-success">{{ novedad.get_tipo_display }}</span>
-                    {% else %}
-                        <span class="badge bg-info text-dark">{{ novedad.get_tipo_display }}</span>
-                    {% endif %}
-                    <a href="{% url 'siped:dashboard' %}" class="ms-2 fw-semibold text-decoration-none">
-                        {{ novedad.expediente.numero_expediente }}
-                    </a>
-                    <div class="small text-muted mt-1">{{ novedad.detalle }}</div>
+            <li class="list-group-item {% if not novedad.vista %}bg-warning-subtle{% endif %}">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div class="flex-grow-1">
+                        <div class="d-flex align-items-center gap-2 flex-wrap">
+                            {% if novedad.tipo == 'EXPEDIENTE_NUEVO' %}
+                                <span class="badge bg-success">{{ novedad.get_tipo_display }}</span>
+                            {% else %}
+                                <span class="badge bg-info text-dark">{{ novedad.get_tipo_display }}</span>
+                            {% endif %}
+                            <button class="btn btn-link p-0 fw-semibold text-decoration-none"
+                                    type="button"
+                                    data-bs-toggle="collapse"
+                                    data-bs-target="#detalle-novedad-{{ novedad.pk }}"
+                                    aria-expanded="false"
+                                    aria-controls="detalle-novedad-{{ novedad.pk }}">
+                                {{ novedad.expediente.numero_expediente }}
+                                <i class="bi bi-chevron-down small ms-1"></i>
+                            </button>
+                        </div>
+                        <div class="small text-muted mt-1">{{ novedad.expediente.caratula|default:"Sin carátula" }}</div>
+                        {% if novedad.tipo != 'EXPEDIENTE_NUEVO' and novedad.detalle %}
+                            <div class="small text-muted mt-1">{{ novedad.detalle }}</div>
+                        {% endif %}
+                    </div>
+                    <small class="text-muted text-nowrap ms-3">
+                        {{ novedad.detectada_en|date:"d/m/Y H:i" }}
+                    </small>
                 </div>
-                <small class="text-muted text-nowrap ms-3">
-                    {{ novedad.detectada_en|date:"d/m/Y H:i" }}
-                </small>
+
+                <div id="detalle-novedad-{{ novedad.pk }}" class="collapse mt-3">
+                    {% for mov in novedad.movimientos_mostrados %}
+                        {% include 'siped/components/_movimiento.html' with mov=mov %}
+                    {% empty %}
+                        <p class="text-muted mb-2">
+                            No hay texto de movimiento disponible para esta novedad.
+                        </p>
+                    {% endfor %}
+
+                    <a href="{% url 'siped:dashboard' %}?expediente={{ novedad.expediente.pk }}"
+                       class="btn btn-sm btn-outline-primary">
+                        <i class="bi bi-folder2-open me-1"></i> Ver expediente completo
+                    </a>
+                </div>
             </li>
             {% endfor %}
         </ul>

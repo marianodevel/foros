@@ -1,0 +1,45 @@
+<div class="border-start border-3 border-primary ps-3 py-2 mb-3">
+  <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+    {% if mov.tipo %}<span class="badge bg-secondary">{{ mov.tipo }}</span>{% endif %}
+    {% with fecha=mov.fecha_presentacion|default:mov.fecha_firma|default:mov.fecha_publicacion %}
+      <small class="text-muted">
+        {% if fecha %}
+          {{ fecha|date:"d/m/Y H:i" }}
+        {% else %}
+          Sin fecha
+        {% endif %}
+      </small>
+    {% endwith %}
+    {% if mov.codigo_escrito %}<span class="badge bg-light text-dark border">{{ mov.codigo_escrito }}</span>{% endif %}
+  </div>
+  <p class="mb-2" style="white-space: pre-line;">{{ mov.descripcion|default:"Sin texto" }}</p>
+  <div class="small text-muted d-flex flex-wrap gap-3">
+    <span>Estado: {{ mov.estado|default:"—" }}</span>
+    <span>Generado por: {{ mov.generado_por|default:"—" }}</span>
+    {% if mov.tasa %}<span class="badge bg-warning text-dark">{{ mov.tasa }}</span>{% endif %}
+    {% if mov.fecha_publicacion %}<span>Publicado: {{ mov.fecha_publicacion|date:"d/m/Y H:i" }}</span>{% endif %}
+  </div>
+  <div class="mt-2">
+    {% for doc in mov.documentos.all %}
+      {% if not doc.es_consolidado %}
+        <a href="{% url 'siped:descargar_archivo' 'documentos' doc.nombre_original %}"
+           class="btn btn-sm btn-outline-danger m-1"
+           target="_blank"
+           title="{{ doc.nombre_original }}">
+          <i class="bi bi-file-earmark-pdf"></i> PDF
+        </a>
+      {% endif %}
+    {% empty %}
+      {% if mov.link_escrito %}
+        <a href="{{ mov.link_escrito }}"
+           class="btn btn-sm btn-outline-secondary"
+           target="_blank"
+           rel="noopener">
+          <i class="bi bi-box-arrow-up-right"></i> Ver en la intranet
+        </a>
+      {% else %}
+        <span class="badge bg-light text-muted border">Sin adjuntos</span>
+      {% endif %}
+    {% endfor %}
+  </div>
+</div>

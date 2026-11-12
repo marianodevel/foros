@@ -10,7 +10,7 @@ from pathlib import Path
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.staticfiles import finders
-from django.db.models import Count, F, Prefetch
+from django.db.models import Count, F, Max, Prefetch, Q
 from django.http import FileResponse, Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -268,9 +268,70 @@ def fragmento_mensajes(request):
     return render(request, "siped/_fragmento_mensajes.html")
 
 
+def _novedades_visibles(usuario):
+    """Novedades procesadas que tienen movimientos nuevos para mostrar."""
+    return (
+        NovedadSIPED.objects.filter(
+            usuario_asignado=usuario,
+            procesada=True,
+            cantidad_movimientos__gt=0,
+        )
+        .select_related("expediente")
+        .order_by("-detectada_en")
+    )
+
+
+def _token_novedades(usuario) -> str:
+    """Identifica el estado visible de las novedades para el auto-refresco."""
+    resumen = _novedades_visibles(usuario).aggregate(
+        total=Count("id"),
+        sin_ver=Count("id", filter=Q(vista=False)),
+        ultima_id=Max("id"),
+        ultima_fecha=Max("detectada_en"),
+    )
+    return (
+        f"{resumen['total']}:{resumen['sin_ver']}:"
+        f"{resumen['ultima_id'] or 0}:{resumen['ultima_fecha'] or ''}"
+    )
+
+
+def _resumen_novedades(usuario) -> dict:
+    """Contadores y token que comparten las pestañas de escritorio."""
+    return {
+        "total_novedades": _novedades_visibles(usuario).filter(vista=False).count(),
+        "novedades_token": _token_novedades(usuario),
+    }
+
+
+def _novedades_con_movimientos(usuario):
+    """Novedades visibles con el texto de los movimientos ya precargado."""
+    novedades = list(
+        _novedades_visibles(usuario).prefetch_related(
+            Prefetch(
+                "movimientos",
+                queryset=_movimientos_ordenados().prefetch_related("documentos"),
+                to_attr="movimientos_vinculados",
+            ),
+            Prefetch(
+                "expediente__movimientos",
+                queryset=_movimientos_ordenados(),
+                to_attr="movimientos_recientes",
+            ),
+        )[:10],
+    )
+    for novedad in novedades:
+        if novedad.movimientos_vinculados:
+            novedad.movimientos_mostrados = novedad.movimientos_vinculados
+            novedad.movimientos_es_fallback = False
+        else:
+            novedad.movimientos_mostrados = novedad.expediente.movimientos_recientes[:3]
+            novedad.movimientos_es_fallback = True
+    return novedades
+
+
 @siped_login_required
 def indice(request):
-    """Renderiza el panel principal con el estado de tareas y expedientes almacenados."""
+    """Pestaña de novedades: cambios detectados por el polling automático."""
     usuario = request.session.get("siped_username")
 
     # La sesión de Django puede sobrevivir a la cookie de la intranet. Antes de
@@ -280,11 +341,34 @@ def indice(request):
         messages.warning(request, SesionSIPEDExpirada.MENSAJE_POR_DEFECTO)
         return redirect("siped:login")
 
+    sesion = SesionSIPED.objects.filter(username_intranet=usuario).first()
+    context = {
+        "tab_activa": "novedades",
+        "novedades": _novedades_con_movimientos(usuario),
+        "ultimo_polling": sesion.ultimo_polling if sesion else None,
+        "username": usuario,
+        **_resumen_novedades(usuario),
+    }
+    return render(request, "siped/index.html", context)
+
+
+@siped_login_required
+def sincronizar(request):
+    """Pestaña de sincronización: herramientas y estado de las tareas."""
+    usuario = request.session.get("siped_username")
+
+    if not _sesion_remota_valida(request):
+        _limpiar_sesion_siped(request)
+        messages.warning(request, SesionSIPEDExpirada.MENSAJE_POR_DEFECTO)
+        return redirect("siped:login")
+
     lista_pdf = gestor_almacenamiento.listar_documentos_pdf(usuario)
     lista_busquedas = gestor_almacenamiento.listar_reportes_busqueda(usuario)
 
     # R12: una sola query en lugar de .exists() + .count() por separado
-    total_maestro  = Expediente.objects.filter(usuario_asignado=usuario, origen="PRIVADO").count()
+    total_maestro = Expediente.objects.filter(
+        usuario_asignado=usuario, origen="PRIVADO",
+    ).count()
     existe_maestro = total_maestro > 0
 
     existe_movimientos = Movimiento.objects.filter(
@@ -294,14 +378,9 @@ def indice(request):
     existe_publico_csv = Expediente.objects.filter(
         usuario_asignado=usuario, origen="PUBLICO",
     ).exists()
-    expedientes_disponibles = Expediente.objects.filter(usuario_asignado=usuario).values()
-
-    novedades = (
-        NovedadSIPED.objects.filter(usuario_asignado=usuario, procesada=True)
-        .select_related("expediente")
-        .order_by("-detectada_en")
-    )
-    total_novedades = novedades.filter(vista=False).count()
+    expedientes_disponibles = Expediente.objects.filter(
+        usuario_asignado=usuario,
+    ).values()
 
     # R1: usar constante de módulo en lugar del dict local
     estados_tareas = {}
@@ -316,27 +395,26 @@ def indice(request):
     form_publica = DescargaPublicaForm(usuario=usuario)
 
     context = {
-        "archivos_pdf":            lista_pdf,
-        "existe_maestro":          existe_maestro,
-        "total_maestro":           total_maestro,
-        "existe_movimientos":      existe_movimientos,
-        "existe_publico_csv":      existe_publico_csv,
-        "lista_busquedas":         lista_busquedas,
-        "estados_tareas":          estados_tareas,
-        "novedades":               novedades[:10],
-        "total_novedades":         total_novedades,
-        "username":                usuario,
+        "tab_activa": "sincronizacion",
+        "archivos_pdf": lista_pdf,
+        "existe_maestro": existe_maestro,
+        "total_maestro": total_maestro,
+        "existe_movimientos": existe_movimientos,
+        "existe_publico_csv": existe_publico_csv,
+        "lista_busquedas": lista_busquedas,
+        "estados_tareas": estados_tareas,
+        "username": usuario,
         "expedientes_disponibles": expedientes_disponibles,
-        "form_busqueda":           form_busqueda,
-        "form_individual":         form_individual,
-        "form_publica":            form_publica,
+        "form_busqueda": form_busqueda,
+        "form_individual": form_individual,
+        "form_publica": form_publica,
         # R8: catálogo de dependencias por localidad para el selector dinámico
         "dependencias_json": json.dumps(
             {str(k): v for k, v in DEPENDENCIAS_POR_LOCALIDAD.items()},
         ),
+        **_resumen_novedades(usuario),
     }
-    
-    return render(request, "siped/index.html", context)
+    return render(request, "siped/sincronizar.html", context)
 
 
 @require_POST
@@ -349,6 +427,29 @@ def marcar_novedades_vistas(request):
     )
     messages.success(request, "Novedades marcadas como vistas.")
     return redirect("siped:indice")
+
+
+@require_POST
+@siped_login_required
+def limpiar_novedades(request):
+    """Elimina las novedades procesadas y conserva la cola pendiente."""
+    usuario = request.session.get("siped_username")
+    NovedadSIPED.objects.filter(
+        usuario_asignado=usuario,
+        procesada=True,
+    ).delete()
+    messages.success(request, "Novedades eliminadas.")
+    return redirect("siped:indice")
+
+
+@siped_login_required
+def fragmento_novedades(request):
+    """Avisa a la pestaña de novedades sólo cuando el polling cambió los datos."""
+    usuario = request.session.get("siped_username")
+    respuesta = HttpResponse(status=204)
+    if request.GET.get("token", "") != _token_novedades(usuario):
+        respuesta["HX-Refresh"] = "true"
+    return respuesta
 
 
 @require_POST
@@ -794,31 +895,39 @@ def exportar_movimientos_individual(request):
 @siped_login_required
 def dashboard(request):
     """
-    Vista de resumen ejecutivo: lista todos los expedientes privados del usuario
-    con sus movimientos y documentos adjuntos, organizados en un acordeón.
-    Ordenados por actividad más reciente primero.
+    Pestaña de expedientes: lista los expedientes privados del usuario con sus
+    movimientos y documentos, ordenados por actividad más reciente.
     """
-    from django.db.models import Max
-
     usuario = request.session.get("siped_username")
+
+    expediente_abierto = None
+    valor_abierto = request.GET.get("expediente", "")
+    if valor_abierto.isdigit():
+        expediente_abierto = int(valor_abierto)
+
     expedientes = (
         Expediente.objects.filter(usuario_asignado=usuario, origen="PRIVADO")
-        .prefetch_related("movimientos__documentos")
-        .annotate(ultimo_movimiento_id=Max("movimientos__id"))
-        .order_by("-ultimo_movimiento_id")
+        .prefetch_related(
+            Prefetch(
+                "movimientos",
+                queryset=_movimientos_ordenados().prefetch_related("documentos"),
+                to_attr="movimientos_ordenados",
+            ),
+        )
+        .order_by(F("fecha_ult_mov").desc(nulls_last=True), "-id")
     )
 
-    novedades = (
-        NovedadSIPED.objects.filter(usuario_asignado=usuario, procesada=True)
-        .select_related("expediente")
-        .order_by("-detectada_en")
+    return render(
+        request,
+        "siped/dashboard.html",
+        {
+            "tab_activa": "expedientes",
+            "expedientes": expedientes,
+            "expediente_abierto": expediente_abierto,
+            "username": usuario,
+            **_resumen_novedades(usuario),
+        },
     )
-    return render(request, "siped/dashboard.html", {
-        "expedientes": expedientes,
-        "novedades": novedades[:10],
-        "total_novedades": novedades.filter(vista=False).count(),
-        "username": usuario,
-    })
 
 
 

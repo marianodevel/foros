@@ -136,7 +136,7 @@ class TestIndiceConFechasVacias:
         _crear("publico-sin-fecha", None, origen="BUSQUEDA_AVANZADA")
 
         with patch("foros.siped.views._sesion_remota_valida", return_value=True):
-            respuesta = cliente.get(reverse("siped:indice"))
+            respuesta = cliente.get(reverse("siped:sincronizar"))
 
         assert respuesta.status_code == HTTPStatus.OK
         contenido = respuesta.content.decode()

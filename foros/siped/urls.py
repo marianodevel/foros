@@ -9,6 +9,7 @@ app_name = "siped"
 urlpatterns = [
     path("", views.indice, name="indice"),
     path("dashboard/", views.dashboard, name="dashboard"),
+    path("sincronizar/", views.sincronizar, name="sincronizar"),
     path("login/", views.login_view, name="login"),
     path("logout/", views.logout_view, name="logout"),
     
@@ -20,8 +21,10 @@ urlpatterns = [
     
     # Novedades del polling automático
     path("novedades/marcar_vistas/", views.marcar_novedades_vistas, name="marcar_novedades_vistas"),
+    path("novedades/limpiar/", views.limpiar_novedades, name="limpiar_novedades"),
 
     # Endpoints de estado y fragmentos (AJAX/HTMX)
+    path("fragmento/novedades/", views.fragmento_novedades, name="fragmento_novedades"),
     path("resetear_estado/<str:nombre_fase>/", views.resetear_estado, name="resetear_estado"),
     path("fragmento/estado/<str:nombre_fase>/", views.fragmento_estado, name="fragmento_estado"),
     path("fragmento/mensajes/", views.fragmento_mensajes, name="fragmento_mensajes"),

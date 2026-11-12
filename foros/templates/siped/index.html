@@ -1,23 +1,24 @@
 {% extends "siped/base.html" %}
 
-{% block title %}Scraper de Expedientes - Django/Celery{% endblock %}
+{% block title %}Novedades - SIPED{% endblock %}
 
 {% block header %}
     {% include 'siped/components/_navbar.html' %}
 {% endblock %}
 
 {% block siped_content %}
-{% include 'siped/components/_tarjeta_novedades.html' %}
-<div class="row">
-    <div class="col-xl-6">
-        {% include 'siped/components/_tarjeta_busqueda_avanzada.html' %}
-        {% include 'siped/components/_tarjeta_busqueda_publica.html' %}
-    </div>
+{% include 'siped/components/_tabs.html' %}
+{% include 'siped/components/_auto_refresh_novedades.html' %}
 
-    <div class="col-xl-6">
-        {% include 'siped/components/_tarjeta_sincronizacion_maestra.html' %}
-        {% include 'siped/components/_tarjeta_sincronizacion_movimientos.html' %}
-        {% include 'siped/components/_tarjeta_descarga_pdf.html' %}
-    </div>
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <p class="text-muted small mb-0">
+        {% if ultimo_polling %}
+            Último control: {{ ultimo_polling|date:"d/m/Y H:i" }}.
+        {% else %}
+            Todavía no se ejecutó el polling automático.
+        {% endif %}
+    </p>
 </div>
+
+{% include 'siped/components/_tarjeta_novedades.html' %}
 {% endblock %}

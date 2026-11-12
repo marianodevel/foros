@@ -1,0 +1,21 @@
+<ul class="nav nav-tabs mb-4">
+  <li class="nav-item">
+    <a class="nav-link {% if tab_activa == 'novedades' %}active{% endif %}"
+       href="{% url 'siped:indice' %}">
+      <i class="bi bi-bell me-1"></i> Novedades
+      {% if total_novedades %}<span class="badge bg-warning text-dark ms-1">{{ total_novedades }}</span>{% endif %}
+    </a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link {% if tab_activa == 'expedientes' %}active{% endif %}"
+       href="{% url 'siped:dashboard' %}">
+      <i class="bi bi-folder2-open me-1"></i> Expedientes
+    </a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link {% if tab_activa == 'sincronizacion' %}active{% endif %}"
+       href="{% url 'siped:sincronizar' %}">
+      <i class="bi bi-arrow-repeat me-1"></i> Sincronización
+    </a>
+  </li>
+</ul>

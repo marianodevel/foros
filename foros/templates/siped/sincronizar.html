@@ -1,0 +1,20 @@
+{% extends "siped/base.html" %}
+
+{% block title %}Sincronización - SIPED{% endblock %}
+{% block header %}
+  {% include 'siped/components/_navbar.html' %}
+{% endblock %}
+{% block siped_content %}
+  {% include 'siped/components/_tabs.html' %}
+  <div class="row">
+    <div class="col-xl-6">
+      {% include 'siped/components/_tarjeta_busqueda_avanzada.html' %}
+      {% include 'siped/components/_tarjeta_busqueda_publica.html' %}
+    </div>
+    <div class="col-xl-6">
+      {% include 'siped/components/_tarjeta_sincronizacion_maestra.html' %}
+      {% include 'siped/components/_tarjeta_sincronizacion_movimientos.html' %}
+      {% include 'siped/components/_tarjeta_descarga_pdf.html' %}
+    </div>
+  </div>
+{% endblock %}

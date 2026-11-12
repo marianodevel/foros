@@ -1,0 +1,5 @@
+<div class="d-none"
+     hx-get="{% url 'siped:fragmento_novedades' %}?token={{ novedades_token|urlencode }}"
+     hx-trigger="every 60s"
+     hx-swap="none"
+     aria-hidden="true"></div>

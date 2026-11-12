@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import date
 from datetime import timedelta
+from http import HTTPStatus
 from unittest.mock import Mock
 from unittest.mock import patch
 
@@ -529,6 +530,55 @@ class TestNovedadesUI:
         assert "Novedades del polling automático" in contenido
         assert "123/2024" in contenido
         assert "1 sin ver" in contenido
+
+    def test_indice_muestra_la_caratula_de_la_novedad(
+        self, cliente, novedad,
+    ) -> None:
+        with patch("foros.siped.views._sesion_remota_valida", return_value=True):
+            respuesta = cliente.get(reverse("siped:indice"))
+
+        assert ">PEREZ C GOMEZ<" in respuesta.content.decode()
+
+    def test_indice_oculta_novedades_sin_movimientos(
+        self, cliente, novedad,
+    ) -> None:
+        novedad.cantidad_movimientos = 0
+        novedad.save(update_fields=["cantidad_movimientos"])
+
+        with patch("foros.siped.views._sesion_remota_valida", return_value=True):
+            respuesta = cliente.get(reverse("siped:indice"))
+
+        assert "Novedades del polling automático" not in respuesta.content.decode()
+
+    def test_limpiar_novedades_elimina_solo_las_procesadas(
+        self, cliente, novedad,
+    ) -> None:
+        pendiente = NovedadSIPED.objects.create(
+            usuario_asignado="abogado",
+            expediente=novedad.expediente,
+            tipo=NovedadSIPED.Tipo.MOVIMIENTOS_NUEVOS,
+            procesada=False,
+        )
+        otro_expediente = Expediente.objects.create(
+            usuario_asignado="otro",
+            numero_expediente="456/2024",
+            caratula="OTRO EXPEDIENTE",
+        )
+        ajena = NovedadSIPED.objects.create(
+            usuario_asignado="otro",
+            expediente=otro_expediente,
+            tipo=NovedadSIPED.Tipo.EXPEDIENTE_NUEVO,
+            procesada=True,
+            cantidad_movimientos=1,
+        )
+
+        respuesta = cliente.post(reverse("siped:limpiar_novedades"))
+
+        assert respuesta.status_code == HTTPStatus.FOUND
+        assert respuesta.url == reverse("siped:indice")
+        assert not NovedadSIPED.objects.filter(pk=novedad.pk).exists()
+        assert NovedadSIPED.objects.filter(pk=pendiente.pk).exists()
+        assert NovedadSIPED.objects.filter(pk=ajena.pk).exists()
 
     def test_marcar_novedades_vistas(self, cliente, novedad) -> None:
         respuesta = cliente.post(reverse("siped:marcar_novedades_vistas"))
