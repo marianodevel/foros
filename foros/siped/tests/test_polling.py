@@ -159,6 +159,48 @@ class TestDeteccionDeCambios:
         assert novedad.cantidad_movimientos == 1
         assert Movimiento.objects.filter(expediente=expediente).count() == 1
 
+    def test_novedad_vincula_los_movimientos_nuevos(self, sesion_siped) -> None:
+        expediente = Expediente.objects.create(
+            usuario_asignado="abogado",
+            numero_expediente="123/2024",
+            caratula="PEREZ C GOMEZ",
+            fecha_ult_mov=date(2024, 2, 1),
+            estado="En letra",
+            link_detalle="https://intranet/detalle.php?exp=123",
+        )
+        movimiento = {
+            "codigo_escrito": "PE1234567-2024",
+            "tasa": "",
+            "fecha_presentacion": "02/02/2024 10:00:00",
+            "tipo": "ESCRITO",
+            "estado": "PUBLICADO",
+            "generado_por": "ABOGADO",
+            "descripcion": "Texto completo del escrito",
+            "fecha_firma": "",
+            "fecha_publicacion": "",
+            "link_escrito": "https://intranet/ver_escrito.php?id=100",
+        }
+
+        with (
+            patch(
+                "foros.siped.fases.polling_cambios.scraper_tasks."
+                "raspar_lista_expedientes",
+                return_value=[_expediente_data(fec_ult_mov="02/02/2024")],
+            ),
+            patch(
+                "foros.siped.fases.polling_cambios.scraper_tasks."
+                "raspar_movimientos_de_expediente",
+                return_value=[movimiento],
+            ),
+            patch("foros.siped.fases.polling_cambios.time.sleep"),
+        ):
+            ejecutar_polling_usuario("abogado")
+
+        novedad = NovedadSIPED.objects.get(expediente=expediente)
+        assert list(
+            novedad.movimientos.values_list("descripcion", flat=True),
+        ) == ["Texto completo del escrito"]
+
     def test_cambio_de_estado_tambien_refresca_movimientos(
         self, sesion_siped,
     ) -> None:

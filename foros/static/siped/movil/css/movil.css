@@ -805,6 +805,31 @@ input:focus {
 /* Expedientes */
 
 .expediente {
+  display: block;
+  margin-bottom: var(--esp-3);
+  color: inherit;
+  text-decoration: none;
+}
+
+.expediente:active {
+  background: var(--superficie-2);
+}
+
+.expediente-accion {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-top: var(--esp-2);
+  color: var(--enlace);
+  font-size: var(--texto-xs);
+  font-weight: 650;
+}
+
+.icono-volver {
+  transform: rotate(180deg);
+}
+
+.volver {
   margin-bottom: var(--esp-3);
 }
 
@@ -923,6 +948,57 @@ input:focus {
 
 .novedad-acciones {
   margin-top: 6px;
+}
+
+.detalle-movimientos {
+  margin-top: var(--esp-2);
+}
+
+.detalle-movimientos summary {
+  min-height: 44px;
+  padding: var(--esp-2) 0;
+  color: var(--enlace);
+  font-size: var(--texto-sm);
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.lista-movimientos {
+  margin: var(--esp-2) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.lista-movimientos > li {
+  padding: var(--esp-3) 0;
+  border-top: 1px solid var(--borde);
+}
+
+.lista-movimientos > li:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.movimiento-cabecera {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--esp-2);
+  margin-bottom: 6px;
+}
+
+.movimiento-texto {
+  margin: 0 0 6px;
+  font-size: var(--texto-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.movimiento-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
 }
 
 /* Sincronización */

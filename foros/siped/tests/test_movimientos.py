@@ -8,6 +8,7 @@ from django.utils import timezone
 from foros.siped import gestor_almacenamiento
 from foros.siped.models import Expediente
 from foros.siped.models import Movimiento
+from foros.siped.models import NovedadSIPED
 
 pytestmark = pytest.mark.django_db
 
@@ -110,6 +111,81 @@ class TestAlmacenamiento:
 
         movimiento = Movimiento.objects.get(expediente=expediente)
         assert movimiento.fecha_publicacion is None
+
+
+class TestVinculoNovedad:
+    def test_vincula_solo_los_movimientos_creados(self, expediente) -> None:
+        novedad = NovedadSIPED.objects.create(
+            usuario_asignado="abogado",
+            expediente=expediente,
+            tipo=NovedadSIPED.Tipo.MOVIMIENTOS_NUEVOS,
+            procesada=True,
+        )
+
+        gestor_almacenamiento.guardar_movimientos_lote(
+            "abogado",
+            "123/2024",
+            [_movimiento()],
+            novedad=novedad,
+        )
+
+        assert list(
+            novedad.movimientos.values_list("descripcion", flat=True),
+        ) == ["OFICIO A CONFRONTE"]
+
+    def test_actualizacion_no_reasigna_la_novedad(self, expediente) -> None:
+        original = NovedadSIPED.objects.create(
+            usuario_asignado="abogado",
+            expediente=expediente,
+            tipo=NovedadSIPED.Tipo.MOVIMIENTOS_NUEVOS,
+            procesada=True,
+        )
+        otra = NovedadSIPED.objects.create(
+            usuario_asignado="abogado",
+            expediente=expediente,
+            tipo=NovedadSIPED.Tipo.MOVIMIENTOS_NUEVOS,
+            procesada=True,
+        )
+
+        gestor_almacenamiento.guardar_movimientos_lote(
+            "abogado", "123/2024", [_movimiento()], novedad=original,
+        )
+        gestor_almacenamiento.guardar_movimientos_lote(
+            "abogado",
+            "123/2024",
+            [_movimiento(tipo="PROVIDENCIA")],
+            novedad=otra,
+        )
+
+        movimiento = Movimiento.objects.get(expediente=expediente)
+        assert movimiento.novedad_id == original.id
+        assert not otra.movimientos.exists()
+
+    def test_sin_novedad_no_vincula_el_movimiento(self, expediente) -> None:
+        gestor_almacenamiento.guardar_movimientos_lote(
+            "abogado", "123/2024", [_movimiento()],
+        )
+
+        movimiento = Movimiento.objects.get(expediente=expediente)
+        assert movimiento.novedad_id is None
+
+    def test_eliminar_la_novedad_conserva_el_movimiento(
+        self, expediente,
+    ) -> None:
+        novedad = NovedadSIPED.objects.create(
+            usuario_asignado="abogado",
+            expediente=expediente,
+            tipo=NovedadSIPED.Tipo.MOVIMIENTOS_NUEVOS,
+            procesada=True,
+        )
+        gestor_almacenamiento.guardar_movimientos_lote(
+            "abogado", "123/2024", [_movimiento()], novedad=novedad,
+        )
+
+        novedad.delete()
+
+        movimiento = Movimiento.objects.get(expediente=expediente)
+        assert movimiento.novedad_id is None
 
 
 class TestDeduplicacion:

@@ -109,6 +109,14 @@ class Movimiento(models.Model):
         on_delete=models.CASCADE,
         related_name="movimientos",
     )
+    novedad = models.ForeignKey(
+        "NovedadSIPED",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="movimientos",
+        help_text="Novedad que detectó este movimiento como nuevo.",
+    )
     codigo_escrito = models.CharField(
         max_length=50,
         blank=True,

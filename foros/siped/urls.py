@@ -45,6 +45,11 @@ urlpatterns = [
     path("m/logout/", views.movel_logout, name="movel_logout"),
     path("m/", views.movel_index, name="movel_index"),
     path("m/expedientes/", views.movel_dashboard, name="movel_dashboard"),
+    path(
+        "m/expediente/<int:pk>/",
+        views.movel_expediente,
+        name="movel_expediente",
+    ),
     path("m/novedades/", views.movel_novedades, name="movel_novedades"),
     path(
         "m/novedades/marcar_vistas/",

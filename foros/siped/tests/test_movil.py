@@ -2,17 +2,23 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
+from http import HTTPStatus
 from unittest.mock import Mock
 from unittest.mock import patch
 
 import pytest
+from django.db import connection
 from django.test import override_settings
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
+from django.utils import timezone
 from pywebpush import WebPushException
 
 from foros.siped import session_manager
 from foros.siped.fases.polling_cambios import _encolar_push_resumen
 from foros.siped.models import Expediente
+from foros.siped.models import Movimiento
 from foros.siped.models import NovedadSIPED
 from foros.siped.models import SuscripcionPush
 from foros.siped.push import enviar_resumen_push
@@ -138,6 +144,226 @@ class TestVistasMoviles:
         assert marcado.url == reverse("siped:movel_novedades")
         novedad.refresh_from_db()
         assert novedad.vista is True
+
+    def test_expedientes_enlaza_la_tarjeta_al_detalle(
+        self, cliente_movil, sesion_remota_valida, expediente,
+    ) -> None:
+        respuesta = cliente_movil.get(reverse("siped:movel_dashboard"))
+
+        assert respuesta.status_code == HTTPStatus.OK
+        assert reverse(
+            "siped:movel_expediente", args=[expediente.pk],
+        ) in respuesta.content.decode()
+
+    def test_expediente_detalle_muestra_el_texto_del_movimiento(
+        self, cliente_movil, sesion_remota_valida, expediente,
+    ) -> None:
+        Movimiento.objects.create(
+            expediente=expediente,
+            tipo="PROVIDENCIA",
+            estado="PUBLICADO",
+            generado_por="SECRETARIA",
+            descripcion="TEXTO COMPLETO DEL MOVIMIENTO",
+            fecha_presentacion=timezone.now(),
+        )
+
+        respuesta = cliente_movil.get(
+            reverse("siped:movel_expediente", args=[expediente.pk]),
+        )
+
+        assert respuesta.status_code == HTTPStatus.OK
+        contenido = respuesta.content.decode()
+        assert "123/2024" in contenido
+        assert "PEREZ C GOMEZ" in contenido
+        assert "TEXTO COMPLETO DEL MOVIMIENTO" in contenido
+
+    def test_expediente_de_otro_usuario_da_404(
+        self, cliente_movil, sesion_remota_valida,
+    ) -> None:
+        ajeno = Expediente.objects.create(
+            usuario_asignado="otro",
+            numero_expediente="999/2024",
+            origen="PRIVADO",
+        )
+
+        respuesta = cliente_movil.get(
+            reverse("siped:movel_expediente", args=[ajeno.pk]),
+        )
+
+        assert respuesta.status_code == HTTPStatus.NOT_FOUND
+
+    def test_expediente_publico_da_404(
+        self, cliente_movil, sesion_remota_valida,
+    ) -> None:
+        publico = Expediente.objects.create(
+            usuario_asignado="abogado",
+            numero_expediente="888/2024",
+            caratula="EXPEDIENTE PUBLICO",
+            origen="PUBLICO",
+        )
+
+        respuesta = cliente_movil.get(
+            reverse("siped:movel_expediente", args=[publico.pk]),
+        )
+
+        assert respuesta.status_code == HTTPStatus.NOT_FOUND
+
+    def test_detalle_marca_expedientes_como_pestana_activa(
+        self, cliente_movil, sesion_remota_valida, expediente,
+    ) -> None:
+        respuesta = cliente_movil.get(
+            reverse("siped:movel_expediente", args=[expediente.pk]),
+        )
+
+        assert respuesta.status_code == HTTPStatus.OK
+        assert 'aria-current="page"' in respuesta.content.decode()
+
+    def test_novedades_muestra_los_movimientos_vinculados(
+        self, cliente_movil, sesion_remota_valida, novedad,
+    ) -> None:
+        novedad.detalle = "Detalle de la novedad"
+        novedad.save()
+        Movimiento.objects.create(
+            expediente=novedad.expediente,
+            novedad=novedad,
+            tipo="ESCRITO",
+            descripcion="MOVIMIENTO VINCULADO A LA NOVEDAD",
+            fecha_presentacion=timezone.now(),
+        )
+        Movimiento.objects.create(
+            expediente=novedad.expediente,
+            tipo="ESCRITO",
+            descripcion="MOVIMIENTO ANTERIOR SIN VINCULO",
+            fecha_presentacion=timezone.now() - timedelta(days=10),
+        )
+
+        respuesta = cliente_movil.get(reverse("siped:movel_novedades"))
+
+        assert respuesta.status_code == HTTPStatus.OK
+        contenido = respuesta.content.decode()
+        assert "MOVIMIENTO VINCULADO A LA NOVEDAD" in contenido
+        assert "MOVIMIENTO ANTERIOR SIN VINCULO" not in contenido
+        assert "Últimos movimientos" not in contenido
+        assert "Detalle de la novedad" in contenido
+
+    def test_novedades_sin_vinculo_usa_los_ultimos_movimientos(
+        self, cliente_movil, sesion_remota_valida, novedad,
+    ) -> None:
+        Movimiento.objects.create(
+            expediente=novedad.expediente,
+            tipo="ESCRITO",
+            descripcion="ULTIMO MOVIMIENTO DEL EXPEDIENTE",
+            fecha_presentacion=timezone.now(),
+        )
+
+        respuesta = cliente_movil.get(reverse("siped:movel_novedades"))
+
+        assert respuesta.status_code == HTTPStatus.OK
+        contenido = respuesta.content.decode()
+        assert "ULTIMO MOVIMIENTO DEL EXPEDIENTE" in contenido
+        assert "Últimos movimientos" in contenido
+
+    def test_fallback_limita_a_tres_y_al_expediente_de_la_novedad(
+        self, cliente_movil, sesion_remota_valida, novedad,
+    ) -> None:
+        ahora = timezone.now()
+        for indice in range(4):
+            Movimiento.objects.create(
+                expediente=novedad.expediente,
+                tipo="ESCRITO",
+                descripcion=f"MOVIMIENTO PROPIO {indice}",
+                fecha_presentacion=ahora - timedelta(days=indice),
+            )
+        otro = Expediente.objects.create(
+            usuario_asignado="abogado",
+            numero_expediente="555/2024",
+            caratula="OTRO EXPEDIENTE",
+            origen="PRIVADO",
+        )
+        Movimiento.objects.create(
+            expediente=otro,
+            tipo="ESCRITO",
+            descripcion="MOVIMIENTO DE OTRO EXPEDIENTE",
+            fecha_presentacion=ahora,
+        )
+
+        respuesta = cliente_movil.get(reverse("siped:movel_novedades"))
+
+        assert respuesta.status_code == HTTPStatus.OK
+        contenido = respuesta.content.decode()
+        assert "MOVIMIENTO PROPIO 0" in contenido
+        assert "MOVIMIENTO PROPIO 1" in contenido
+        assert "MOVIMIENTO PROPIO 2" in contenido
+        assert "MOVIMIENTO PROPIO 3" not in contenido
+        assert "MOVIMIENTO DE OTRO EXPEDIENTE" not in contenido
+
+    def test_fallback_no_hace_una_consulta_por_novedad(
+        self, cliente_movil, sesion_remota_valida, novedad,
+    ) -> None:
+        Movimiento.objects.create(
+            expediente=novedad.expediente,
+            tipo="ESCRITO",
+            descripcion="MOVIMIENTO DEL EXPEDIENTE",
+            fecha_presentacion=timezone.now(),
+        )
+
+        with CaptureQueriesContext(connection) as una_novedad:
+            cliente_movil.get(reverse("siped:movel_novedades"))
+
+        for _ in range(4):
+            NovedadSIPED.objects.create(
+                usuario_asignado="abogado",
+                expediente=novedad.expediente,
+                tipo=NovedadSIPED.Tipo.EXPEDIENTE_NUEVO,
+                procesada=True,
+            )
+
+        with CaptureQueriesContext(connection) as cinco_novedades:
+            cliente_movil.get(reverse("siped:movel_novedades"))
+
+        assert len(cinco_novedades) == len(una_novedad)
+
+    def test_novedades_oculta_expedientes_publicos(
+        self, cliente_movil, sesion_remota_valida,
+    ) -> None:
+        publico = Expediente.objects.create(
+            usuario_asignado="abogado",
+            numero_expediente="777/2024",
+            caratula="EXPEDIENTE PUBLICO",
+            origen="PUBLICO",
+        )
+        NovedadSIPED.objects.create(
+            usuario_asignado="abogado",
+            expediente=publico,
+            tipo=NovedadSIPED.Tipo.EXPEDIENTE_NUEVO,
+            procesada=True,
+        )
+
+        respuesta = cliente_movil.get(reverse("siped:movel_novedades"))
+
+        assert respuesta.status_code == HTTPStatus.OK
+        assert "777/2024" not in respuesta.content.decode()
+
+    def test_inicio_oculta_novedades_de_expedientes_publicos(
+        self, cliente_movil, sesion_remota_valida,
+    ) -> None:
+        publico = Expediente.objects.create(
+            usuario_asignado="abogado",
+            numero_expediente="666/2024",
+            caratula="EXPEDIENTE PUBLICO",
+            origen="PUBLICO",
+        )
+        NovedadSIPED.objects.create(
+            usuario_asignado="abogado",
+            expediente=publico,
+            tipo=NovedadSIPED.Tipo.EXPEDIENTE_NUEVO,
+            procesada=True,
+        )
+
+        respuesta = cliente_movil.get(reverse("siped:movel_index"))
+
+        assert respuesta.status_code == HTTPStatus.OK
+        assert "666/2024" not in respuesta.content.decode()
 
     def test_sincronizar_muestra_las_fases(
         self, cliente_movil, sesion_remota_valida,

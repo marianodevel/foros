@@ -12,6 +12,7 @@ from .fechas import parsear_fecha_intranet
 from .models import DocumentoAdjunto
 from .models import Expediente
 from .models import Movimiento
+from .models import NovedadSIPED
 from .models import ReporteBusqueda
 
 
@@ -213,6 +214,7 @@ def guardar_movimientos_lote(
     username: str,
     numero_expediente: str,
     movimientos_data: list[dict[str, Any]],
+    novedad: NovedadSIPED | None = None,
 ) -> tuple[int, int]:
     """
     Inserta o actualiza un lote de movimientos asociados a un expediente específico.
@@ -231,6 +233,8 @@ def guardar_movimientos_lote(
         numero_expediente: Número de expediente al que corresponden los movimientos.
         movimientos_data: Lista de diccionarios con los datos extraídos de la
             plataforma.
+        novedad: Novedad que originó la sincronización. Solo se asigna a los
+            movimientos creados; las actualizaciones conservan su vínculo.
 
     Returns:
         Tupla ``(creados, actualizados)``. Si el expediente no existe devuelve
@@ -271,6 +275,7 @@ def guardar_movimientos_lote(
 
             _, creado = Movimiento.objects.update_or_create(
                 defaults=defaults,
+                create_defaults={**defaults, "novedad": novedad},
                 **lookup,
             )
             if creado:

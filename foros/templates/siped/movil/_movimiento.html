@@ -1,0 +1,17 @@
+<div class="movimiento">
+  <div class="movimiento-cabecera">
+    <span class="chip">{{ mov.tipo|default:"Movimiento" }}</span>
+    <span class="texto-suave pequeno">
+      {% with fecha=mov.fecha_presentacion|default:mov.fecha_firma|default:mov.fecha_publicacion %}
+        {% if fecha %}{{ fecha|date:"d/m/Y H:i" }}{% else %}Sin fecha{% endif %}
+      {% endwith %}
+    </span>
+  </div>
+  <p class="movimiento-texto">{{ mov.descripcion|default:"Sin texto" }}</p>
+  <div class="movimiento-meta texto-suave pequeno">
+    {% if mov.codigo_escrito %}<span>{{ mov.codigo_escrito }}</span>{% endif %}
+    {% if mov.estado %}<span>{{ mov.estado }}</span>{% endif %}
+    {% if mov.generado_por %}<span>{{ mov.generado_por }}</span>{% endif %}
+    {% if mov.tasa %}<span>{{ mov.tasa }}</span>{% endif %}
+  </div>
+</div>

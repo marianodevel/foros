@@ -114,8 +114,8 @@
         <span>Inicio</span>
       </a>
       <a href="{% url 'siped:movel_dashboard' %}"
-         class="{% if request.resolver_match.url_name == 'movel_dashboard' %}activo{% endif %}"
-         {% if request.resolver_match.url_name == 'movel_dashboard' %}aria-current="page"{% endif %}>
+         class="{% if request.resolver_match.url_name == 'movel_dashboard' or request.resolver_match.url_name == 'movel_expediente' %}activo{% endif %}"
+         {% if request.resolver_match.url_name == 'movel_dashboard' or request.resolver_match.url_name == 'movel_expediente' %}aria-current="page"{% endif %}>
         <svg class="nav-icono" aria-hidden="true"><use href="#icono-carpeta"></use></svg>
         <span>Expedientes</span>
       </a>

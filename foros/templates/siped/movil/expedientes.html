@@ -31,8 +31,9 @@
 
   <div id="lista-expedientes">
     {% for expediente in expedientes %}
-      <article class="tarjeta expediente"
-               data-busqueda="{{ expediente.numero_expediente }} {{ expediente.caratula }} {{ expediente.dependencia }} {{ expediente.estado }} {{ expediente.secretaria }} {{ expediente.localidad }}">
+      <a class="tarjeta expediente"
+         href="{% url 'siped:movel_expediente' expediente.pk %}"
+         data-busqueda="{{ expediente.numero_expediente }} {{ expediente.caratula }} {{ expediente.dependencia }} {{ expediente.estado }} {{ expediente.secretaria }} {{ expediente.localidad }}">
         <div class="expediente-cabecera">
           <strong>{{ expediente.numero_expediente }}</strong>
           {% if expediente.estado %}
@@ -48,7 +49,11 @@
           Último movimiento:
           {{ expediente.fecha_ult_mov|date:"d/m/Y"|default:"sin fecha" }}
         </div>
-      </article>
+        <div class="expediente-accion">
+          Ver movimientos
+          <svg class="icono icono-pequeno" aria-hidden="true"><use href="#icono-flecha"></use></svg>
+        </div>
+      </a>
     {% endfor %}
   </div>
 

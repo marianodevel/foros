@@ -220,7 +220,10 @@ def _procesar_novedades(session, username: str) -> tuple[int, int]:
 
         movimientos = scraper_tasks.raspar_movimientos_de_expediente(session, datos)
         creados, _ = gestor_almacenamiento.guardar_movimientos_lote(
-            username, expediente.numero_expediente, movimientos,
+            username,
+            expediente.numero_expediente,
+            movimientos,
+            novedad=novedad,
         )
 
         novedad.cantidad_movimientos = creados

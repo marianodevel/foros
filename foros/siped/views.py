@@ -10,9 +10,9 @@ from pathlib import Path
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.staticfiles import finders
-from django.db.models import Count, F
+from django.db.models import Count, F, Prefetch
 from django.http import FileResponse, Http404, HttpResponse, JsonResponse
-from django.shortcuts import redirect, render
+from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
@@ -953,7 +953,9 @@ def movel_index(request):
         {
             "titulo": "Inicio",
             "novedades": NovedadSIPED.objects.filter(
-                usuario_asignado=ctx["usuario"], procesada=True,
+                usuario_asignado=ctx["usuario"],
+                procesada=True,
+                expediente__origen="PRIVADO",
             )
             .select_related("expediente")
             .order_by("-detectada_en")[:5],
@@ -980,6 +982,39 @@ def movel_dashboard(request):
         },
     )
     return render(request, "siped/movil/expedientes.html", ctx)
+
+
+def _movimientos_ordenados(expediente=None):
+    """Movimientos del más reciente al más antiguo para la PWA."""
+    queryset = Movimiento.objects.order_by(
+        F("fecha_presentacion").desc(nulls_last=True),
+        F("fecha_firma").desc(nulls_last=True),
+        F("fecha_publicacion").desc(nulls_last=True),
+        "-id",
+    )
+    if expediente is not None:
+        queryset = queryset.filter(expediente=expediente)
+    return queryset
+
+
+@movel_login_required
+def movel_expediente(request, pk):
+    """Detalle móvil de un expediente con el texto de sus movimientos."""
+    ctx = _contexto_movil(request)
+    expediente = get_object_or_404(
+        Expediente,
+        pk=pk,
+        usuario_asignado=ctx["usuario"],
+        origen="PRIVADO",
+    )
+    ctx.update(
+        {
+            "titulo": expediente.numero_expediente,
+            "expediente": expediente,
+            "movimientos": _movimientos_ordenados(expediente),
+        },
+    )
+    return render(request, "siped/movil/expediente.html", ctx)
 
 
 def _agrupar_novedades_por_fecha(novedades):
@@ -1011,11 +1046,34 @@ def movel_novedades(request):
     ctx = _contexto_movil(request)
     novedades = list(
         NovedadSIPED.objects.filter(
-            usuario_asignado=ctx["usuario"], procesada=True,
+            usuario_asignado=ctx["usuario"],
+            procesada=True,
+            expediente__origen="PRIVADO",
         )
         .select_related("expediente")
+        .prefetch_related(
+            Prefetch(
+                "movimientos",
+                queryset=_movimientos_ordenados(),
+                to_attr="movimientos_vinculados",
+            ),
+            Prefetch(
+                "expediente__movimientos",
+                queryset=_movimientos_ordenados(),
+                to_attr="movimientos_recientes",
+            ),
+        )
         .order_by("-detectada_en"),
     )
+    for novedad in novedades:
+        if novedad.movimientos_vinculados:
+            novedad.movimientos_mostrados = novedad.movimientos_vinculados
+            novedad.movimientos_es_fallback = False
+        else:
+            novedad.movimientos_mostrados = (
+                novedad.expediente.movimientos_recientes[:3]
+            )
+            novedad.movimientos_es_fallback = True
     ctx.update(
         {
             "titulo": "Novedades",

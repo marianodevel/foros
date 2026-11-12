@@ -1,0 +1,52 @@
+{% extends "siped/movil/base.html" %}
+{% block titulo %}{{ expediente.numero_expediente }}{% endblock %}
+
+{% block movil_content %}
+<a class="enlace volver" href="{% url 'siped:movel_dashboard' %}">
+  <svg class="icono icono-pequeno icono-volver" aria-hidden="true"><use href="#icono-flecha"></use></svg>
+  Volver a expedientes
+</a>
+
+<section class="tarjeta">
+  <div class="expediente-cabecera">
+    <strong>{{ expediente.numero_expediente }}</strong>
+    {% if expediente.estado %}
+      <span class="chip">{{ expediente.estado }}</span>
+    {% endif %}
+  </div>
+  <p class="expediente-caratula">{{ expediente.caratula|default:"Sin carátula" }}</p>
+  <div class="fila">
+    <span class="texto-suave">Dependencia</span>
+    <span>{{ expediente.dependencia|default:"—" }}</span>
+  </div>
+  <div class="fila">
+    <span class="texto-suave">Secretaría</span>
+    <span>{{ expediente.secretaria|default:"—" }}</span>
+  </div>
+  <div class="fila">
+    <span class="texto-suave">Movimientos</span>
+    <strong>{{ movimientos|length }}</strong>
+  </div>
+  <div class="fila">
+    <span class="texto-suave">Último movimiento</span>
+    <span>{{ expediente.fecha_ult_mov|date:"d/m/Y"|default:"sin fecha" }}</span>
+  </div>
+</section>
+
+<section>
+  <h2 class="grupo-titulo">Movimientos</h2>
+  {% for mov in movimientos %}
+    <article class="tarjeta">
+      {% include "siped/movil/_movimiento.html" with mov=mov %}
+    </article>
+  {% empty %}
+    <div class="vacio">
+      <svg class="vacio-icono" aria-hidden="true"><use href="#icono-carpeta"></use></svg>
+      <p>Todavía no hay movimientos sincronizados para este expediente.</p>
+      <a class="btn btn-primario" href="{% url 'siped:movel_sincronizar' %}">
+        Sincronizar movimientos
+      </a>
+    </div>
+  {% endfor %}
+</section>
+{% endblock %}

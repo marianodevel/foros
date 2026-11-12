@@ -56,7 +56,10 @@
       {% for novedad in novedades %}
         <li class="{% if not novedad.vista %}nueva{% endif %}">
           <div class="novedad-titulo">
-            {{ novedad.expediente.numero_expediente }}
+            <a class="enlace"
+               href="{% url 'siped:movel_expediente' novedad.expediente.pk %}">
+              {{ novedad.expediente.numero_expediente }}
+            </a>
             {% if not novedad.vista %}
               <span class="punto" aria-hidden="true"></span>
               <span class="solo-lectores">sin ver</span>

@@ -47,13 +47,39 @@
               {{ novedad.get_tipo_display }} ·
               {{ novedad.detectada_en|date:"H:i" }}
             </div>
-            <div class="pequeno">{{ novedad.detalle|default:"Sin detalle" }}</div>
             <div class="texto-suave pequeno">
               {{ novedad.expediente.caratula|default:"" }}
             </div>
+            {% if novedad.detalle %}
+              <div class="pequeno">{{ novedad.detalle }}</div>
+            {% endif %}
+            {% if novedad.movimientos_mostrados %}
+              <details class="detalle-movimientos">
+                <summary>
+                  {% if novedad.movimientos_es_fallback %}
+                    Últimos movimientos
+                  {% else %}
+                    Ver movimiento{{ novedad.movimientos_mostrados|length|pluralize:"s" }}
+                  {% endif %}
+                  ({{ novedad.movimientos_mostrados|length }})
+                </summary>
+                <ul class="lista-movimientos">
+                  {% for mov in novedad.movimientos_mostrados %}
+                    <li>{% include "siped/movil/_movimiento.html" with mov=mov %}</li>
+                  {% endfor %}
+                </ul>
+                {% if novedad.movimientos_es_fallback %}
+                  <a class="enlace"
+                     href="{% url 'siped:movel_expediente' novedad.expediente.pk %}">
+                    Ver todos los movimientos
+                    <svg class="icono icono-pequeno" aria-hidden="true"><use href="#icono-flecha"></use></svg>
+                  </a>
+                {% endif %}
+              </details>
+            {% endif %}
             <div class="novedad-acciones">
               <a class="enlace"
-                 href="{% url 'siped:movel_dashboard' %}?buscar={{ novedad.expediente.numero_expediente|urlencode }}">
+                 href="{% url 'siped:movel_expediente' novedad.expediente.pk %}">
                 Ver expediente
                 <svg class="icono icono-pequeno" aria-hidden="true"><use href="#icono-flecha"></use></svg>
               </a>
