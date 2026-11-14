@@ -17,11 +17,20 @@ _TEXTO_SIN_RESULTADOS = (
     "no se registraron",
 )
 
+# Encabezado común a las vistas de escrito (detexp, ver_escrito, externo).
+_MARCAS_DOCUMENTO = ("poder judicial", "expediente:")
+
 
 def _parece_pagina_sin_resultados(soup: BeautifulSoup) -> bool:
     """Reconoce páginas legítimas que informan que la consulta no tuvo resultados."""
     texto = soup.get_text(" ", strip=True).lower()
     return any(marca in texto for marca in _TEXTO_SIN_RESULTADOS)
+
+
+def _parece_pagina_documento(soup: BeautifulSoup) -> bool:
+    """Reconoce una vista de escrito aunque no publique archivos descargables."""
+    texto = soup.get_text(" ", strip=True).lower()
+    return all(marca in texto for marca in _MARCAS_DOCUMENTO)
 
 
 def obtener_url_meta_refresh(html_content: str, base_url: str) -> Optional[str]:
@@ -314,7 +323,12 @@ def normalizar_url_pdf(url_sucia: str, tipo: str = "principal") -> str:
 
 def parsear_pagina_documento(html_content: str) -> Dict[str, Any]:
     soup = BeautifulSoup(html_content, "html.parser")
-    data = {"url_pdf_principal": None, "adjuntos": [], "firmantes": []}
+    data = {
+        "url_pdf_principal": None,
+        "adjuntos": [],
+        "firmantes": [],
+        "es_documento": _parece_pagina_documento(soup),
+    }
 
     link_principal = soup.find("a", href=re.compile(r"pdfabogado|descargar", re.IGNORECASE))
     if link_principal:

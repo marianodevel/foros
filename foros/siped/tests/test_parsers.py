@@ -164,3 +164,39 @@ class TestColumnasReales:
 
     def test_sin_tabla_devuelve_lista_vacia(self) -> None:
         assert parsers.parsear_movimientos_de_ajax_html("<html></html>", "1/1") == []
+
+
+ENCABEZADO_DOCUMENTO = """
+<div>Poder Judicial de la provincia de Santa Cruz</div>
+<div>Expediente: 23215/2025</div>
+"""
+
+
+class TestPaginaDocumento:
+    def test_escrito_sin_archivo_es_un_documento_reconocido(self) -> None:
+        html = f"<html><body>{ENCABEZADO_DOCUMENTO}<p>N° 1-459744/8</p></body></html>"
+
+        datos = parsers.parsear_pagina_documento(html)
+
+        assert datos["es_documento"] is True
+        assert datos["url_pdf_principal"] is None
+        assert datos["adjuntos"] == []
+
+    def test_pagina_ajena_no_es_un_documento(self) -> None:
+        datos = parsers.parsear_pagina_documento("<html><body>otra cosa</body></html>")
+
+        assert datos["es_documento"] is False
+
+    def test_extrae_el_pdf_principal(self) -> None:
+        html = (
+            f"<html><body>{ENCABEZADO_DOCUMENTO}"
+            '<a href="../../agrega_plantilla/pdfabogado.php?id_escrito=2923034">'
+            "Descargar archivo PDF</a></body></html>"
+        )
+
+        datos = parsers.parsear_pagina_documento(html)
+
+        assert datos["es_documento"] is True
+        assert datos["url_pdf_principal"].endswith(
+            "/siped/agrega_plantilla/pdfabogado.php?id_escrito=2923034",
+        )

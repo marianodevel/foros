@@ -199,6 +199,17 @@ def raspar_movimientos_de_expediente(
         ) from e
 
 
+def _url_documento_alternativa(document_url: str) -> Optional[str]:
+    """La vista detexp omite el PDF en algunos escritos; ver_escrito.php lo publica."""
+    if "ver_escrito_detexp.php" not in document_url:
+        return None
+    return document_url.replace("ver_escrito_detexp.php", "ver_escrito.php")
+
+
+def _tiene_contenido_documental(datos: Dict[str, Any]) -> bool:
+    return bool(datos["url_pdf_principal"] or datos["adjuntos"] or datos["firmantes"])
+
+
 def raspar_contenido_documento(
     session: requests.Session, document_url: str
 ) -> Optional[Dict[str, Any]]:
@@ -211,7 +222,30 @@ def raspar_contenido_documento(
         session_manager.verificar_respuesta_autenticada(r_documento)
 
         datos = parsers.parsear_pagina_documento(r_documento.text)
-        if not datos["url_pdf_principal"] and not datos["adjuntos"] and not datos["firmantes"]:
+
+        if not _tiene_contenido_documental(datos):
+            url_alternativa = _url_documento_alternativa(document_url)
+            if url_alternativa:
+                r_alternativa = session.get(url_alternativa, timeout=30)
+                r_alternativa.raise_for_status()
+                session_manager.verificar_respuesta_autenticada(r_alternativa)
+                datos_alternativos = parsers.parsear_pagina_documento(
+                    r_alternativa.text,
+                )
+                if (
+                    _tiene_contenido_documental(datos_alternativos)
+                    or datos_alternativos["es_documento"]
+                ):
+                    datos = datos_alternativos
+
+        if not _tiene_contenido_documental(datos):
+            if datos["es_documento"]:
+                logger.warning(
+                    "La página del documento %s no publica archivo descargable; "
+                    "se omite.",
+                    document_url,
+                )
+                return datos
             raise PaginaInesperada(
                 f"La página del documento {document_url} no contiene datos reconocibles."
             )
